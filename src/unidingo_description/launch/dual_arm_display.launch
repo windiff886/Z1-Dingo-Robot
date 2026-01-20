@@ -1,0 +1,25 @@
+<launch>
+  <!-- 
+    双臂机器人可视化启动文件
+    用法: roslaunch uni_dingo dual_arm_display.launch
+  -->
+  
+  <arg name="UnitreeGripper" default="true"/>
+  <arg name="gui" default="true"/>
+
+  <!-- 加载双臂 URDF -->
+  <param name="robot_description" command="$(find xacro)/xacro --inorder 
+    '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro'
+    UnitreeGripper:=$(arg UnitreeGripper)"/>
+
+  <!-- 关节状态发布器 -->
+  <node if="$(arg gui)" name="joint_state_publisher_gui" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+  <node unless="$(arg gui)" name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher"/>
+
+  <!-- 机器人状态发布器 -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+  <!-- RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find uni_dingo)/config/dual_arm.rviz" required="true"/>
+
+</launch>

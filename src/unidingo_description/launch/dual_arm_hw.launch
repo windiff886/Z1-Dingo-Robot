@@ -1,0 +1,74 @@
+<launch>
+  <!-- 
+    双臂硬件控制启动文件
+    用法: roslaunch uni_dingo dual_arm_hw.launch
+  -->
+  
+  <arg name="UnitreeGripper" default="true"/>
+  <arg name="rviz" default="true"/>
+  
+  <!-- 左臂 IP 和端口配置 -->
+  <arg name="left_arm_ip" default="192.168.123.110"/>
+  <arg name="left_arm_port" default="8871"/>
+  
+  <!-- 右臂 IP 和端口配置 -->
+  <arg name="right_arm_ip" default="192.168.123.111"/>
+  <arg name="right_arm_port" default="8873"/>
+
+  <!-- 加载双臂 URDF -->
+  <param name="robot_description" command="$(find xacro)/xacro --inorder 
+    '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro'
+    UnitreeGripper:=$(arg UnitreeGripper)"/>
+
+  <!-- 机器人状态发布器 -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+  <!-- ========== 左臂控制器 ========== -->
+  <group ns="left_arm">
+    <!-- 加载控制器配置 -->
+    <rosparam file="$(find uni_dingo)/config/left_controllers.yaml" command="load"/>
+    
+    <!-- 启动硬件节点 -->
+    <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
+      <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)"/>
+      <param name="joint_prefix" value="left_"/>
+      <param name="udp/mcu_ip" value="$(arg left_arm_ip)"/>
+      <param name="udp/port_to_mcu" value="8881"/>
+      <param name="udp/port_to_sdk" value="$(arg left_arm_port)"/>
+      <param name="udp_to_controller/controller_ip" value="127.0.0.1"/>
+      <param name="udp_to_controller/own_port" value="$(arg left_arm_port)"/>
+    </node>
+    
+    <!-- 启动控制器 -->
+    <node name="controller_spawner" pkg="controller_manager" type="spawner"
+      respawn="false" output="screen"
+      args="left_joint_state_controller left_z1_joint_traj_controller"/>
+  </group>
+
+  <!-- ========== 右臂控制器 ========== -->
+  <group ns="right_arm">
+    <!-- 加载控制器配置 -->
+    <rosparam file="$(find uni_dingo)/config/right_controllers.yaml" command="load"/>
+    
+    <!-- 启动硬件节点 -->
+    <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
+      <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)"/>
+      <param name="joint_prefix" value="right_"/>
+      <param name="udp/mcu_ip" value="$(arg right_arm_ip)"/>
+      <param name="udp/port_to_mcu" value="8882"/>
+      <param name="udp/port_to_sdk" value="$(arg right_arm_port)"/>
+      <param name="udp_to_controller/controller_ip" value="127.0.0.1"/>
+      <param name="udp_to_controller/own_port" value="$(arg right_arm_port)"/>
+    </node>
+    
+    <!-- 启动控制器 -->
+    <node name="controller_spawner" pkg="controller_manager" type="spawner"
+      respawn="false" output="screen"
+      args="right_joint_state_controller right_z1_joint_traj_controller"/>
+  </group>
+
+  <!-- RViz -->
+  <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz" 
+    args="-d $(find uni_dingo)/config/dual_arm.rviz"/>
+
+</launch>

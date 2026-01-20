@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<!-- 
+  Uni-Dingo 双臂机器人描述
+  包含: Dingo 底盘 + 左 Z1 机械臂 + 右 Z1 机械臂
+-->
+<robot name="uni_dingo_dual_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 参数 -->
+  <xacro:arg name="UnitreeGripper" default="true"/>
+
+  <!-- 引入 Z1 机械臂 macro -->
+  <xacro:include filename="$(find uni_dingo)/urdf/z1_arm.urdf.xacro"/>
+
+  <!-- ========== Dingo 底盘 ========== -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.022862 -0.034436 0.035407" rpy="0 0 0"/>
+      <mass value="5.3306"/>
+      <inertia ixx="0.059795" ixy="2.6827E-06" ixz="-1.8684E-07"
+               iyy="0.020279" iyz="0.00018072" izz="0.06071"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://uni_dingo/meshes/base_link.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://uni_dingo/meshes/base_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ========== 左臂安装座（仅作为连接点，不显示原有 mesh） ========== -->
+  <link name="leftarm_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <!-- 移除 visual，避免与 Z1 机械臂重复 -->
+  </link>
+
+  <joint name="base_leftarm_joint" type="fixed">
+    <origin xyz="0.11708 -0.15091 0.57228" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="leftarm_link"/>
+  </joint>
+
+  <!-- ========== 右臂安装座（仅作为连接点，不显示原有 mesh） ========== -->
+  <link name="rightarm_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+    <!-- 移除 visual，避免与 Z1 机械臂重复 -->
+  </link>
+
+  <joint name="base_rightarm_joint" type="fixed">
+    <origin xyz="-0.11708 -0.15091 0.57228" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="rightarm_link"/>
+  </joint>
+
+  <!-- ========== 左 Z1 机械臂（朝前，绕 Z 轴旋转 -90°） ========== -->
+  <xacro:z1_arm prefix="left_" parent="leftarm_link" UnitreeGripper="$(arg UnitreeGripper)">
+    <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+  </xacro:z1_arm>
+
+  <!-- ========== 右 Z1 机械臂（朝前，绕 Z 轴旋转 -90°） ========== -->
+  <xacro:z1_arm prefix="right_" parent="rightarm_link" UnitreeGripper="$(arg UnitreeGripper)">
+    <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+  </xacro:z1_arm>
+
+</robot>

@@ -1,0 +1,8 @@
+<library path="lib/libd455_camera_nodelet">
+  <class
+      name="d455_camera/D455CameraNodelet"
+      type="d455_camera::D455CameraNodelet"
+      base_class_type="nodelet::Nodelet">
+    <description>D455 camera nodelet</description>
+  </class>
+</library>

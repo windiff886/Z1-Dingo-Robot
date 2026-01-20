@@ -1,0 +1,23 @@
+<launch>
+  <!-- 
+    双臂 Z1 控制节点启动文件
+    用法: roslaunch z1_control z1_control.launch
+  -->
+  
+  <!-- MoveIt 规划组名称 -->
+  <arg name="left_planning_group" default="left_arm_manipulator"/>
+  <arg name="right_planning_group" default="right_arm_manipulator"/>
+  
+  <!-- 夹爪 Action 名称 -->
+  <arg name="left_gripper_action" default="left_arm/left_z1_gripper"/>
+  <arg name="right_gripper_action" default="right_arm/right_z1_gripper"/>
+  
+  <!-- 双臂控制节点 -->
+  <node name="z1_dual_control_node" pkg="z1_control" type="z1_control_node" output="screen">
+    <param name="left_planning_group" value="$(arg left_planning_group)"/>
+    <param name="right_planning_group" value="$(arg right_planning_group)"/>
+    <param name="left_gripper_action" value="$(arg left_gripper_action)"/>
+    <param name="right_gripper_action" value="$(arg right_gripper_action)"/>
+  </node>
+
+</launch>

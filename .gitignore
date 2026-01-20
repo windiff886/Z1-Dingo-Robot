@@ -39,3 +39,7 @@
 
 # debug information files
 *.dwo
+
+.catkin_workspace
+build/
+devel/

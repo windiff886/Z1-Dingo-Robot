@@ -1,0 +1,18 @@
+<launch>
+  <!-- 
+    Z1 底层控制器启动文件
+    参数化支持双臂
+  -->
+  <arg name="arm_ip" default="192.168.123.110"/>
+  <arg name="port_to_mcu" default="8881"/>
+  <arg name="port_to_sdk" default="8871"/>
+  
+  <node pkg="z1_controller" type="z1_ctrl" name="z1_ctrl" output="screen">
+    <param name="communication" value="UDP"/>
+    <param name="z1_urdf_path" value="$(find z1_description)/xacro/z1.urdf"/>
+    <param name="udp/mcu_ip" value="$(arg arm_ip)"/>
+    <param name="udp/port_to_mcu" value="$(arg port_to_mcu)"/>
+    <param name="udp/port_to_sdk" value="$(arg port_to_sdk)"/>
+    <rosparam file="$(find z1_controller)/config/config.yaml"/>
+  </node>
+</launch>

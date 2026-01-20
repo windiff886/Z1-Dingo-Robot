@@ -1,0 +1,69 @@
+<launch>
+  <!--
+    Teleop configuration for Dingo robot
+    Supports both joystick (PS4) and keyboard control
+
+    Usage:
+      roslaunch dingo_base base.launch                    # Default: joystick
+      roslaunch dingo_base base.launch teleop:=keyboard   # Use keyboard
+
+    Both modes use the same architecture:
+      Input Device -> Joy msg -> teleop_twist_joy -> Twist
+
+    Configuration files:
+      - teleop_diff.yaml / teleop_omni.yaml: Joy -> Twist mapping (shared)
+      - keyboard_diff.yaml / keyboard_omni.yaml: Keyboard -> Joy mapping
+  -->
+
+  <!-- Control method: "joystick" or "keyboard" -->
+  <arg name="teleop" default="joystick" />
+  <arg name="enable_teleop" default="$(optenv DINGO_TELEOP_ENABLE 1)" />
+
+  <!-- Joystick settings -->
+  <arg name="joy_dev" default="$(optenv DINGO_JOY_DEV /dev/input/ps4)" />
+
+  <!-- Joy -> Twist config (shared by both joystick and keyboard modes) -->
+  <arg name="joy_config" default="$(eval optenv('DINGO_JOY_CONFIG', find('dingo_control') + '/config/teleop_omni.yaml'
+                          if int(optenv('DINGO_OMNI', 0)) else find('dingo_control') + '/config/teleop_diff.yaml'))" />
+
+  <!-- Keyboard -> Joy config -->
+  <arg name="keyboard_config" default="$(eval optenv('DINGO_KEYBOARD_CONFIG', find('dingo_control') + '/config/keyboard_omni.yaml'
+                               if int(optenv('DINGO_OMNI', 0)) else find('dingo_control') + '/config/keyboard_diff.yaml'))" />
+
+  <group if="$(arg enable_teleop)">
+    <!-- Interactive marker server (always enabled) -->
+    <group if="$(optenv DINGO_OMNI 0)">
+      <node pkg="interactive_marker_twist_server" type="marker_server" name="twist_marker_server">
+        <rosparam command="load" file="$(find interactive_marker_twist_server)/config/planar.yaml" />
+      </node>
+    </group>
+    <group unless="$(optenv DINGO_OMNI 0)">
+      <node pkg="interactive_marker_twist_server" type="marker_server" name="twist_marker_server">
+        <rosparam command="load" file="$(find interactive_marker_twist_server)/config/linear.yaml" />
+      </node>
+    </group>
+
+    <!-- ============== JOYSTICK MODE ============== -->
+    <group unless="$(eval arg('teleop') == 'keyboard')" ns="bluetooth_teleop">
+      <rosparam command="load" file="$(arg joy_config)" />
+      <param name="joy_node/dev" value="$(arg joy_dev)" />
+      <node pkg="joy" type="joy_node" name="joy_node" />
+      <node pkg="teleop_twist_joy" type="teleop_node" name="teleop_twist_joy"/>
+    </group>
+
+    <!-- ============== KEYBOARD MODE ============== -->
+    <group if="$(eval arg('teleop') == 'keyboard')" ns="keyboard_teleop">
+      <!-- Load keyboard -> Joy mapping config -->
+      <rosparam command="load" file="$(arg keyboard_config)" />
+      <!-- Load Joy -> Twist mapping config (same as joystick mode) -->
+      <rosparam command="load" file="$(arg joy_config)" />
+
+      <!-- Keyboard to Joy converter (run in separate terminal for keyboard input) -->
+      <node pkg="dingo_control" type="keyboard_to_joy.py" name="keyboard_to_joy" output="screen" />
+
+      <!-- Joy to Twist converter (reuses same node as joystick mode) -->
+      <node pkg="teleop_twist_joy" type="teleop_node" name="teleop_twist_joy" />
+    </group>
+  </group>
+
+</launch>
