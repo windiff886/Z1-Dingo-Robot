@@ -1,20 +1,18 @@
-#ifndef STATE_LOW_COMMAND_H
-#define STATE_LOW_COMMAND_H
+#ifndef LOWCMD_H
+#define LOWCMD_H
 
-#include "FSM/FSMState.h"
+#include "FSMState.h"
 
-class State_LowCmd : public FSMState
-{
+class State_LowCmd : public FSMState{
 public:
-  State_LowCmd(std::shared_ptr<CtrlComponents> ctrlComp);
-  ~State_LowCmd();
-  
-  void enter() override;
-  void run_impl() override;
-  void exit() override;
-  mode_t checkChange_impl(mode_t cmd) override;
+    State_LowCmd(CtrlComponents *ctrlComp);
+    void enter();
+    void run();
+    void exit();
+    int checkChange(int cmd);
 private:
-
+    std::vector<float> _kp;
+    std::vector<float> _kw;
 };
 
-#endif // STATE_LOW_COMMAND_H
+#endif  // LOWCMD_H

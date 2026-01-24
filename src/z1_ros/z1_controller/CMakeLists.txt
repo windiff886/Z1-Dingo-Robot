@@ -1,37 +1,24 @@
 cmake_minimum_required(VERSION 3.0)
-project(z1_controller
-  VERSION 3.0.0
-  LANGUAGES CXX)
+project(z1_controller LANGUAGES CXX)
+set(PACKAGE_NAME z1_controller)
+set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -O3 -std=c++14 -pthread")
 
-set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -O3 -std=c++14 -DNDEBUG -fPIC")
-
-## Dependencies
 find_package(Boost REQUIRED)
-find_package(pinocchio REQUIRED)
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  genmsg
-  std_msgs
-  unitree_legged_msgs
-  roslib
-)
-
-catkin_package(
-  CATKIN_DEPENDS unitree_legged_msgs roslib
-)  
-
+find_package(Eigen3 REQUIRED)
 include_directories(
-  ${pinocchio_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
-  ${catkin_INCLUDE_DIRS}
-  include
-  sim
+    ${Boost_INCLUDE_DIRS}
+    ${Eigen3_INCLUDE_DIRS}
+    include
 )
 
 link_directories(lib)
-add_executable(z1_ctrl main.cpp sim/IOROS.cpp)
-target_link_libraries(z1_ctrl
-  ${catkin_LIBRARIES}
-  UnitreeArm_${CMAKE_SYSTEM_PROCESSOR}
-  pinocchio::pinocchio
-)
+# ----------------------add executable----------------------
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+add_executable(z1_ctrl main.cpp)
+target_link_libraries(z1_ctrl libZ1_${CMAKE_HOST_SYSTEM_PROCESSOR}.so)
+
+find_package(catkin QUIET)
+if(${catkin_FOUND})
+    catkin_package()
+    add_subdirectory(sim)
+endif()
