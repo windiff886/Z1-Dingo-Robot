@@ -1,0 +1,78 @@
+<launch>
+  <!-- Gazebo + MoveIt for uni_dingo_dual_arm -->
+  <arg name="use_sim_time" default="true" />
+  <arg name="gui" default="true" />
+  <arg name="headless" default="false" />
+  <arg name="world_name" default="$(find dingo_gazebo)/worlds/dingo_race.world" />
+
+  <!-- Robot Spawn Pose -->
+  <arg name="x" default="0" />
+  <arg name="y" default="0" />
+  <arg name="z" default="0.1" />
+  <arg name="yaw" default="0" />
+
+  <!-- Dingo config + teleop -->
+  <arg name="config" default="$(optenv DINGO_CONFIG base)" />
+  <arg name="teleop" default="keyboard" />
+  <arg name="joystick" default="true" />
+
+  <!-- Uni-Dingo parameters -->
+  <arg name="UnitreeGripper" default="true" />
+  <arg name="moveit" default="true" />
+  <arg name="rviz" default="true" />
+
+  <!-- Launch Gazebo with the specified world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="debug" value="0" />
+    <arg name="gui" value="$(arg gui)" />
+    <arg name="use_sim_time" value="$(arg use_sim_time)" />
+    <arg name="headless" value="$(arg headless)" />
+    <arg name="world_name" value="$(arg world_name)" />
+  </include>
+
+  <!-- Robot description -->
+  <param name="robot_description"
+         command="$(find dingo_description)/scripts/env_run
+                  $(find dingo_description)/urdf/configs/$(arg config)
+                  $(find xacro)/xacro --inorder $(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro
+                  UnitreeGripper:=$(arg UnitreeGripper)" />
+
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+
+  <!-- Controllers + teleop for base -->
+  <include file="$(find dingo_control)/launch/control.launch" />
+  <include file="$(find dingo_control)/launch/teleop.launch">
+    <arg name="teleop" value="$(arg teleop)" />
+    <arg name="enable_teleop" value="$(arg joystick)" />
+  </include>
+
+  <group if="$(optenv DINGO_OMNI 0)">
+    <rosparam command="load" file="$(find dingo_gazebo)/config/gains_omni.yaml" />
+  </group>
+  <group unless="$(optenv DINGO_OMNI 0)">
+    <rosparam command="load" file="$(find dingo_gazebo)/config/gains_diff.yaml" />
+  </group>
+
+  <!-- Arm controller params + PIDs -->
+  <rosparam command="load" file="$(find uni_dingo)/config/left_controllers.yaml" ns="left_arm" />
+  <rosparam command="load" file="$(find uni_dingo)/config/right_controllers.yaml" ns="right_arm" />
+  <rosparam command="load" file="$(find uni_dingo)/config/z1_gazebo_pid.yaml" />
+
+  <!-- Spawn robot -->
+  <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model"
+        args="-urdf -model uni_dingo_dual_arm -param robot_description -x $(arg x) -y $(arg y) -z $(arg z) -Y $(arg yaw)" />
+
+  <!-- Spawn arm controllers -->
+  <node name="arm_controller_spawner" pkg="controller_manager" type="spawner"
+        args="left_arm/left_joint_state_controller left_arm/left_z1_joint_traj_controller right_arm/right_joint_state_controller right_arm/right_z1_joint_traj_controller" />
+
+  <!-- MoveIt -->
+  <include file="$(find z1_dual_moveit_config)/launch/move_group.launch" if="$(arg moveit)">
+    <arg name="allow_trajectory_execution" value="true"/>
+    <arg name="fake_execution" value="false"/>
+  </include>
+
+  <include file="$(find z1_dual_moveit_config)/launch/moveit_rviz.launch" if="$(arg rviz)">
+    <arg name="rviz_config" value="$(find z1_dual_moveit_config)/launch/moveit.rviz"/>
+  </include>
+</launch>

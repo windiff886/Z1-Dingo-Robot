@@ -7,34 +7,26 @@
 
   <!-- 参数 -->
   <xacro:arg name="UnitreeGripper" default="true"/>
+  <xacro:property name="arm_support_radius" value="0.02"/>
+  <xacro:property name="arm_support_clearance" value="0.10"/>
+  <xacro:property name="left_arm_mount_x" value="0.15091"/>
+  <xacro:property name="left_arm_mount_y" value="-0.11708"/>
+  <xacro:property name="left_arm_mount_z" value="0.57228"/>
+  <xacro:property name="left_arm_support_length" value="${left_arm_mount_z - arm_support_clearance}"/>
+  <xacro:property name="right_arm_mount_x" value="0.15091"/>
+  <xacro:property name="right_arm_mount_y" value="0.11708"/>
+  <xacro:property name="right_arm_mount_z" value="0.57228"/>
+  <xacro:property name="right_arm_support_length" value="${right_arm_mount_z - arm_support_clearance}"/>
+
+  <material name="arm_support_grey">
+    <color rgba="0.3 0.3 0.3 1.0"/>
+  </material>
 
   <!-- 引入 Z1 机械臂 macro -->
   <xacro:include filename="$(find uni_dingo)/urdf/z1_arm.urdf.xacro"/>
 
-  <!-- ========== Dingo 底盘 ========== -->
-  <link name="base_link">
-    <inertial>
-      <origin xyz="-0.022862 -0.034436 0.035407" rpy="0 0 0"/>
-      <mass value="5.3306"/>
-      <inertia ixx="0.059795" ixy="2.6827E-06" ixz="-1.8684E-07"
-               iyy="0.020279" iyz="0.00018072" izz="0.06071"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://uni_dingo/meshes/base_link.STL"/>
-      </geometry>
-      <material name="">
-        <color rgba="1 1 1 1"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://uni_dingo/meshes/base_link.STL"/>
-      </geometry>
-    </collision>
-  </link>
+  <!-- ========== Dingo 底盘（官方描述） ========== -->
+  <xacro:include filename="$(find dingo_description)/urdf/dingo.urdf.xacro"/>
 
   <!-- ========== 左臂安装座（仅作为连接点，不显示原有 mesh） ========== -->
   <link name="leftarm_link">
@@ -47,9 +39,26 @@
   </link>
 
   <joint name="base_leftarm_joint" type="fixed">
-    <origin xyz="0.11708 -0.15091 0.57228" rpy="0 0 0"/>
+    <origin xyz="${left_arm_mount_x} ${left_arm_mount_y} ${left_arm_mount_z}" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="leftarm_link"/>
+  </joint>
+
+  <!-- ========== 左臂支撑柱（仅视觉） ========== -->
+  <link name="leftarm_support_link">
+    <visual>
+      <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="${left_arm_support_length}" radius="${arm_support_radius}"/>
+      </geometry>
+      <material name="arm_support_grey"/>
+    </visual>
+  </link>
+
+  <joint name="base_leftarm_support_joint" type="fixed">
+    <origin xyz="${left_arm_mount_x} ${left_arm_mount_y} ${left_arm_mount_z}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="leftarm_support_link"/>
   </joint>
 
   <!-- ========== 右臂安装座（仅作为连接点，不显示原有 mesh） ========== -->
@@ -63,19 +72,36 @@
   </link>
 
   <joint name="base_rightarm_joint" type="fixed">
-    <origin xyz="-0.11708 -0.15091 0.57228" rpy="0 0 0"/>
+    <origin xyz="${right_arm_mount_x} ${right_arm_mount_y} ${right_arm_mount_z}" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="rightarm_link"/>
   </joint>
 
-  <!-- ========== 左 Z1 机械臂（朝前，绕 Z 轴旋转 -90°） ========== -->
+  <!-- ========== 右臂支撑柱（仅视觉） ========== -->
+  <link name="rightarm_support_link">
+    <visual>
+      <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="${right_arm_support_length}" radius="${arm_support_radius}"/>
+      </geometry>
+      <material name="arm_support_grey"/>
+    </visual>
+  </link>
+
+  <joint name="base_rightarm_support_joint" type="fixed">
+    <origin xyz="${right_arm_mount_x} ${right_arm_mount_y} ${right_arm_mount_z}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="rightarm_support_link"/>
+  </joint>
+
+  <!-- ========== 左 Z1 机械臂 ========== -->
   <xacro:z1_arm prefix="left_" parent="leftarm_link" UnitreeGripper="$(arg UnitreeGripper)">
-    <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:z1_arm>
 
-  <!-- ========== 右 Z1 机械臂（朝前，绕 Z 轴旋转 -90°） ========== -->
+  <!-- ========== 右 Z1 机械臂 ========== -->
   <xacro:z1_arm prefix="right_" parent="rightarm_link" UnitreeGripper="$(arg UnitreeGripper)">
-    <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:z1_arm>
 
 </robot>
