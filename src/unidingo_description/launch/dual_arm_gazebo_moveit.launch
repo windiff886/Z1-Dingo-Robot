@@ -4,6 +4,8 @@
   <arg name="gui" default="true" />
   <arg name="headless" default="false" />
   <arg name="world_name" default="$(find dingo_gazebo)/worlds/dingo_race.world" />
+  <arg name="auto_stow" default="true" />
+  <arg name="paused" default="true" />
 
   <!-- Robot Spawn Pose -->
   <arg name="x" default="0" />
@@ -20,6 +22,10 @@
   <arg name="UnitreeGripper" default="true" />
   <arg name="moveit" default="true" />
   <arg name="rviz" default="true" />
+  <arg name="auto_safe_pose" default="true" />
+
+  <!-- Disable Gazebo online model database (permanent for this launch) -->
+  <env name="GAZEBO_MODEL_DATABASE_URI" value="" />
 
   <!-- Launch Gazebo with the specified world -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
@@ -28,6 +34,7 @@
     <arg name="use_sim_time" value="$(arg use_sim_time)" />
     <arg name="headless" value="$(arg headless)" />
     <arg name="world_name" value="$(arg world_name)" />
+    <arg name="paused" value="$(arg paused)" />
   </include>
 
   <!-- Robot description -->
@@ -46,10 +53,10 @@
     <arg name="enable_teleop" value="$(arg joystick)" />
   </include>
 
-  <group if="$(optenv DINGO_OMNI 0)">
+  <group if="$(optenv DINGO_OMNI 1)">
     <rosparam command="load" file="$(find dingo_gazebo)/config/gains_omni.yaml" />
   </group>
-  <group unless="$(optenv DINGO_OMNI 0)">
+  <group unless="$(optenv DINGO_OMNI 1)">
     <rosparam command="load" file="$(find dingo_gazebo)/config/gains_diff.yaml" />
   </group>
 
@@ -58,13 +65,43 @@
   <rosparam command="load" file="$(find uni_dingo)/config/right_controllers.yaml" ns="right_arm" />
   <rosparam command="load" file="$(find uni_dingo)/config/z1_gazebo_pid.yaml" />
 
-  <!-- Spawn robot -->
-  <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model"
-        args="-urdf -model uni_dingo_dual_arm -param robot_description -x $(arg x) -y $(arg y) -z $(arg z) -Y $(arg yaw)" />
-
-  <!-- Spawn arm controllers -->
-  <node name="arm_controller_spawner" pkg="controller_manager" type="spawner"
-        args="left_arm/left_joint_state_controller left_arm/left_z1_joint_traj_controller right_arm/right_joint_state_controller right_arm/right_z1_joint_traj_controller" />
+  <!-- Publish a safe pose once controllers are available -->
+  <node if="$(arg auto_safe_pose)" name="set_dual_arm_safe_pose" pkg="uni_dingo" type="set_dual_arm_safe_pose.py" output="screen">
+    <param name="unpause" value="$(arg paused)" />
+    <param name="unpause_after_set_model" value="false" />
+    <param name="spawn_model" value="true" />
+    <param name="spawn_x" value="$(arg x)" />
+    <param name="spawn_y" value="$(arg y)" />
+    <param name="spawn_z" value="$(arg z)" />
+    <param name="spawn_yaw" value="$(arg yaw)" />
+    <param name="robot_description_param" value="/robot_description" />
+    <param name="set_model" value="$(eval 'false' if arg('auto_stow') else 'true')" />
+    <param name="model_name" value="uni_dingo_dual_arm" />
+    <param name="stow_only" value="$(arg auto_stow)" />
+    <param name="strict" value="true" />
+    <param name="retry_interval" value="0.5" />
+    <param name="delete_existing_model" value="true" />
+    <param name="switch_timeout" value="2.0" />
+    <param name="pre_unpause_for_controllers" value="true" />
+    <param name="pause_on_failure" value="true" />
+    <param name="disable_gravity_during_controller_start" value="true" />
+    <param name="restore_gravity_after_safe_pose" value="true" />
+    <!-- Use 'home' as initial pose -->
+    <rosparam param="left_positions">[0, 0, 0, -0.07435, 0, 0]</rosparam>
+    <rosparam param="right_positions">[0, 0, 0, -0.07435, 0, 0]</rosparam>
+    <rosparam param="controllers_to_load">
+      - left_arm/left_joint_state_controller
+      - left_arm/left_z1_joint_traj_controller
+      - right_arm/right_joint_state_controller
+      - right_arm/right_z1_joint_traj_controller
+    </rosparam>
+    <rosparam param="start_controllers">
+      - left_arm/left_joint_state_controller
+      - left_arm/left_z1_joint_traj_controller
+      - right_arm/right_joint_state_controller
+      - right_arm/right_z1_joint_traj_controller
+    </rosparam>
+  </node>
 
   <!-- MoveIt -->
   <include file="$(find z1_dual_moveit_config)/launch/move_group.launch" if="$(arg moveit)">

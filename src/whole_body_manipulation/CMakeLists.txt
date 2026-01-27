@@ -13,7 +13,3 @@ catkin_package()
 include_directories(
   ${catkin_INCLUDE_DIRS}
 )
-
-add_executable(keyboard_cmd_vel src/keyboard_cmd_vel.cpp)
-target_link_libraries(keyboard_cmd_vel ${catkin_LIBRARIES})
-add_dependencies(keyboard_cmd_vel ${catkin_EXPORTED_TARGETS})

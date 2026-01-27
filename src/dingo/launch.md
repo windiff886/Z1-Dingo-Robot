@@ -37,7 +37,7 @@ roslaunch dingo_base base.launch
 - 组件：`<node pkg="dingo_base" type="dingo_node" name="dingo_node" />`  
 - 位置：`dingo_base` 包内的 `dingo_node` 可执行文件  
 - 关键参数：
-  - `dingo_omni`：`$(optenv DINGO_OMNI 0)`
+  - `dingo_omni`：`$(optenv DINGO_OMNI 1)`
   - `wireless_interface`：`$(optenv DINGO_WIRELESS_INTERFACE wlp2s0)`
 - 配置文件位置：`src/dingo/dingo_base/config/$(arg motor_params).yaml`  
   - 默认实际路径：`src/dingo/dingo_base/config/base.yaml`
@@ -119,7 +119,8 @@ roslaunch dingo_base base.launch
 ## 条件逻辑说明
 
 - 当 `DINGO_OMNI=1`：底盘驱动参数 `dingo_omni` 为真，诊断配置使用 `diagnostic_analyzers_omni.yaml`。
-- 当 `DINGO_OMNI=0` 或未设置：诊断配置使用 `diagnostic_analyzers_diff.yaml`。
+- 当 `DINGO_OMNI=0`：诊断配置使用 `diagnostic_analyzers_diff.yaml`。
+- 未设置 `DINGO_OMNI` 时默认全向（等同于 `DINGO_OMNI=1`）。
 
 ## 小结
 

@@ -291,7 +291,7 @@
 
   <!-- Entire PACS System -->
   <xacro:macro name="pacs">
-    <xacro:property name="omni" value="$(optenv DINGO_OMNI 0)"/>
+    <xacro:property name="omni" value="$(optenv DINGO_OMNI 1)"/>
     <xacro:property name="riser" value="$(optenv DINGO_PACS_RISER 0)"/>
     <xacro:property name="pacs_enabled" value="$(optenv DINGO_PACS_ENABLED 0)" />
 

@@ -28,6 +28,14 @@
   <!-- ========== Dingo 底盘（官方描述） ========== -->
   <xacro:include filename="$(find dingo_description)/urdf/dingo.urdf.xacro"/>
 
+  <!-- Enable self-collision for base links in Gazebo -->
+  <gazebo reference="base_link">
+    <self_collide>true</self_collide>
+  </gazebo>
+  <gazebo reference="chassis_link">
+    <self_collide>true</self_collide>
+  </gazebo>
+
   <!-- ========== 左臂安装座（仅作为连接点，不显示原有 mesh） ========== -->
   <link name="leftarm_link">
     <inertial>

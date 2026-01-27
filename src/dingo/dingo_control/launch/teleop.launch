@@ -24,20 +24,20 @@
 
   <!-- Joy -> Twist config (shared by both joystick and keyboard modes) -->
   <arg name="joy_config" default="$(eval optenv('DINGO_JOY_CONFIG', find('dingo_control') + '/config/teleop_omni.yaml'
-                          if int(optenv('DINGO_OMNI', 0)) else find('dingo_control') + '/config/teleop_diff.yaml'))" />
+                          if int(optenv('DINGO_OMNI', 1)) else find('dingo_control') + '/config/teleop_diff.yaml'))" />
 
   <!-- Keyboard -> Joy config -->
   <arg name="keyboard_config" default="$(eval optenv('DINGO_KEYBOARD_CONFIG', find('dingo_control') + '/config/keyboard_omni.yaml'
-                               if int(optenv('DINGO_OMNI', 0)) else find('dingo_control') + '/config/keyboard_diff.yaml'))" />
+                               if int(optenv('DINGO_OMNI', 1)) else find('dingo_control') + '/config/keyboard_diff.yaml'))" />
 
   <group if="$(arg enable_teleop)">
     <!-- Interactive marker server (always enabled) -->
-    <group if="$(optenv DINGO_OMNI 0)">
+    <group if="$(optenv DINGO_OMNI 1)">
       <node pkg="interactive_marker_twist_server" type="marker_server" name="twist_marker_server">
         <rosparam command="load" file="$(find interactive_marker_twist_server)/config/planar.yaml" />
       </node>
     </group>
-    <group unless="$(optenv DINGO_OMNI 0)">
+    <group unless="$(optenv DINGO_OMNI 1)">
       <node pkg="interactive_marker_twist_server" type="marker_server" name="twist_marker_server">
         <rosparam command="load" file="$(find interactive_marker_twist_server)/config/linear.yaml" />
       </node>

@@ -1,9 +1,9 @@
 <launch>
 
-  <group if="$(optenv DINGO_OMNI 0)">
+  <group if="$(optenv DINGO_OMNI 1)">
     <rosparam file="$(dirname)/../../params/dingo_o_params.yaml" command="load" />
   </group>
-  <group unless="$(optenv DINGO_OMNI 0)">
+  <group unless="$(optenv DINGO_OMNI 1)">
     <rosparam file="$(dirname)/../../params/dingo_d_params.yaml" command="load" />
   </group>
 

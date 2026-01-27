@@ -331,6 +331,29 @@
     <xacro:z1_motorTransmission prefix="${prefix}" name="5"/>
     <xacro:z1_motorTransmission prefix="${prefix}" name="6"/>
 
+    <!-- Enable self-collision in Gazebo for arm links -->
+    <gazebo reference="${prefix}link00">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link01">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link02">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link03">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link04">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link05">
+      <self_collide>true</self_collide>
+    </gazebo>
+    <gazebo reference="${prefix}link06">
+      <self_collide>true</self_collide>
+    </gazebo>
+
   </xacro:macro>
 
 </robot>

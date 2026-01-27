@@ -8,7 +8,7 @@ Every sensor has three types of environment variables:
 
 ## Dingo Variables
 ```bash
-export DINGO_OMNI=0
+export DINGO_OMNI=1
 export M_PI=3.14159265359
 ```
 ###### Description

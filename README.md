@@ -80,5 +80,6 @@ roslaunch z1_description z1_rviz.launch
 ```
 
 ```bash
-roslaunch whole_body_manipulation keyboard_cmd_vel.launch
+# 仿真整机
+roslaunch uni_dingo dual_arm_gazebo_moveit.launch
 ```

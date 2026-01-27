@@ -23,10 +23,10 @@
     <arg name="enable_teleop" value="$(arg joystick)"/>
   </include>
 
-  <group if="$(optenv DINGO_OMNI 0)">
+  <group if="$(optenv DINGO_OMNI 1)">
     <rosparam command="load" file="$(dirname)/../config/gains_omni.yaml" />
   </group>
-  <group unless="$(optenv DINGO_OMNI 0)">
+  <group unless="$(optenv DINGO_OMNI 1)">
     <rosparam command="load" file="$(dirname)/../config/gains_diff.yaml" />
   </group>
 
