@@ -1,0 +1,23 @@
+# MoveGripper.action
+# Control the gripper
+
+# Goal
+uint8 OPEN = 0
+uint8 CLOSE = 1
+uint8 SET_POSITION = 2
+
+uint8 command
+float64 position                      # Target position for SET_POSITION
+float64 max_effort                    # Maximum effort/force
+
+---
+# Result
+bool success
+string message
+float64 final_position
+bool object_detected                  # True if object grasped
+
+---
+# Feedback
+float64 current_position
+float64 current_effort

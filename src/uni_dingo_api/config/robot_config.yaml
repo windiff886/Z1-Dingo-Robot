@@ -1,0 +1,75 @@
+# Uni-Dingo Robot Configuration
+# ==============================
+
+robot:
+  name: "uni_dingo"
+  mode: "simulation"  # "simulation" | "real"
+
+# Subsystem configuration
+subsystems:
+  base:
+    enabled: true
+    type: "dingo_omni"  # "dingo_omni" | "dingo_diff"
+    cmd_vel_topic: "/cmd_vel"
+    odom_topic: "/odometry/filtered"
+    max_linear_vel: 1.0   # m/s
+    max_angular_vel: 2.0  # rad/s
+
+  left_arm:
+    enabled: true
+    planning_group: "left_arm"
+    end_effector_link: "left_link06"
+    joint_names:
+      - "left_joint1"
+      - "left_joint2"
+      - "left_joint3"
+      - "left_joint4"
+      - "left_joint5"
+      - "left_joint6"
+    gripper:
+      enabled: true
+      joint_name: "left_gripper"
+
+  right_arm:
+    enabled: true
+    planning_group: "right_arm"
+    end_effector_link: "right_link06"
+    joint_names:
+      - "right_joint1"
+      - "right_joint2"
+      - "right_joint3"
+      - "right_joint4"
+      - "right_joint5"
+      - "right_joint6"
+    gripper:
+      enabled: true
+      joint_name: "right_gripper"
+
+  head:
+    enabled: false  # Not implemented in Phase 1
+    pan_joint: "pan_joint"
+    tilt_joint: "tilt_joint"
+
+  perception:
+    enabled: false  # Not implemented in Phase 1
+    camera_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/depth/image_raw"
+
+# Named poses for arms
+named_poses:
+  home:
+    left: [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
+    right: [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
+  ready:
+    left: [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0]
+    right: [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0]
+  tucked:
+    left: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
+    right: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
+
+# Motion parameters
+motion:
+  default_velocity_scaling: 0.3
+  default_acceleration_scaling: 0.3
+  planning_time: 5.0
+  num_planning_attempts: 10

@@ -1,0 +1,95 @@
+<launch>
+  <!--
+    Uni-Dingo Unified Bringup
+    =========================
+
+    Usage:
+      roslaunch uni_dingo_api bringup.launch                    # Simulation with GUI
+      roslaunch uni_dingo_api bringup.launch mode:=real         # Real robot
+      roslaunch uni_dingo_api bringup.launch gui:=false         # Headless simulation
+      roslaunch uni_dingo_api bringup.launch rviz:=false        # No RViz
+  -->
+
+  <!-- Operating mode -->
+  <arg name="mode" default="simulation" doc="Operating mode: 'simulation' or 'real'" />
+
+  <!-- Simulation settings -->
+  <arg name="gui" default="true" doc="Launch Gazebo GUI" />
+  <arg name="rviz" default="true" doc="Launch RViz" />
+  <arg name="world" default="$(find dingo_gazebo)/worlds/dingo_race.world" />
+  <arg name="paused" default="true" doc="Start Gazebo paused" />
+
+  <!-- Robot configuration -->
+  <arg name="teleop" default="keyboard" doc="Teleop method: 'keyboard' or 'joystick'" />
+  <arg name="moveit" default="true" doc="Enable MoveIt motion planning" />
+  <arg name="auto_safe_pose" default="true" doc="Move arms to safe pose on startup" />
+
+  <!-- Subsystem enables -->
+  <arg name="base" default="true" />
+  <arg name="left_arm" default="true" />
+  <arg name="right_arm" default="true" />
+  <arg name="head" default="false" />
+  <arg name="perception" default="false" />
+
+  <!-- Robot spawn pose -->
+  <arg name="x" default="0" />
+  <arg name="y" default="0" />
+  <arg name="z" default="0.1" />
+  <arg name="yaw" default="0" />
+
+  <!-- ==================== SIMULATION MODE ==================== -->
+  <group if="$(eval arg('mode') == 'simulation')">
+
+    <!-- Load unified config to parameter server -->
+    <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
+    <param name="uni_dingo/robot/mode" value="simulation" />
+
+    <!-- Launch the existing dual_arm_gazebo_moveit -->
+    <include file="$(find uni_dingo)/launch/dual_arm_gazebo_moveit.launch">
+      <arg name="gui" value="$(arg gui)" />
+      <arg name="paused" value="$(arg paused)" />
+      <arg name="world_name" value="$(arg world)" />
+      <arg name="teleop" value="$(arg teleop)" />
+      <arg name="moveit" value="$(arg moveit)" />
+      <arg name="rviz" value="$(arg rviz)" />
+      <arg name="auto_safe_pose" value="$(arg auto_safe_pose)" />
+      <arg name="x" value="$(arg x)" />
+      <arg name="y" value="$(arg y)" />
+      <arg name="z" value="$(arg z)" />
+      <arg name="yaw" value="$(arg yaw)" />
+    </include>
+
+  </group>
+
+  <!-- ==================== REAL ROBOT MODE ==================== -->
+  <group if="$(eval arg('mode') == 'real')">
+
+    <!-- Load unified config -->
+    <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
+    <param name="uni_dingo/robot/mode" value="real" />
+
+    <!-- Real robot bringup would go here -->
+    <!-- This is a placeholder for Phase 3 -->
+
+    <node pkg="rostopic" type="rostopic" name="mode_info"
+          args="pub -1 /uni_dingo/mode std_msgs/String 'real'" />
+
+    <!--
+    TODO (Phase 3): Add real robot launch includes:
+    - Dingo base driver
+    - Z1 hardware interface
+    - Pan-tilt driver
+    - Camera driver
+    - MoveIt (with real controllers)
+    -->
+
+  </group>
+
+  <!-- ==================== COMMON NODES ==================== -->
+
+  <!-- Robot state publisher node (publishes unified robot state) -->
+  <node pkg="uni_dingo_api" type="robot_state_publisher.py" name="uni_dingo_state_publisher" output="screen">
+    <param name="publish_rate" value="10.0" />
+  </node>
+
+</launch>
