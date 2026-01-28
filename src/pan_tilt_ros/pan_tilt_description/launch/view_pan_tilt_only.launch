@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  查看纯云台模型（不含相机）
+  用法: roslaunch pan_tilt_description view_pan_tilt_only.launch
+-->
+<launch>
+
+  <arg name="model" default="$(find xacro)/xacro --inorder $(find pan_tilt_description)/urdf/pan_tilt_only.urdf.xacro"/>
+
+  <param name="robot_description" command="$(arg model)"/>
+
+  <!-- 关节状态发布（带 GUI 滑块控制） -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+
+  <!-- 机器人状态发布 -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+  <!-- RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find pan_tilt_description)/rviz/pan_tilt_only.rviz" required="true"/>
+
+</launch>

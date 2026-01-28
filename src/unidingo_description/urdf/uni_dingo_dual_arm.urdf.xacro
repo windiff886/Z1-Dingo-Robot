@@ -1,13 +1,20 @@
 <?xml version="1.0"?>
-<!-- 
+<!--
   Uni-Dingo 双臂机器人描述
-  包含: Dingo 底盘 + 左 Z1 机械臂 + 右 Z1 机械臂
+  包含: Dingo 底盘 + 左 Z1 机械臂 + 右 Z1 机械臂 + Pan-Tilt 云台
 -->
 <robot name="uni_dingo_dual_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- 参数 -->
   <xacro:arg name="UnitreeGripper" default="true"/>
+  <xacro:arg name="PanTilt" default="true"/>
   <xacro:property name="arm_support_radius" value="0.02"/>
+
+  <!-- 云台挂载位置 -->
+  <xacro:property name="pan_tilt_mount_x" value="0.15091"/>
+  <xacro:property name="pan_tilt_mount_y" value="0"/>
+  <xacro:property name="pan_tilt_mount_z" value="1.0"/>
+  <xacro:property name="pan_tilt_support_length" value="${pan_tilt_mount_z - arm_support_clearance}"/>
   <xacro:property name="arm_support_clearance" value="0.10"/>
   <xacro:property name="left_arm_mount_x" value="0.15091"/>
   <xacro:property name="left_arm_mount_y" value="-0.11708"/>
@@ -24,6 +31,10 @@
 
   <!-- 引入 Z1 机械臂 macro -->
   <xacro:include filename="$(find uni_dingo)/urdf/z1_arm.urdf.xacro"/>
+
+
+  <!-- 引入 Pan-Tilt 云台 macro -->
+  <xacro:include filename="$(find pan_tilt_description)/urdf/pan_tilt.urdf.xacro"/>
 
   <!-- ========== Dingo 底盘（官方描述） ========== -->
   <xacro:include filename="$(find dingo_description)/urdf/dingo.urdf.xacro"/>
@@ -111,5 +122,59 @@
   <xacro:z1_arm prefix="right_" parent="rightarm_link" UnitreeGripper="$(arg UnitreeGripper)">
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:z1_arm>
+
+  <!-- ========== Pan-Tilt 云台 ========== -->
+  <xacro:if value="$(arg PanTilt)">
+
+    <!-- 云台支撑柱（仅视觉） -->
+    <link name="pan_tilt_support_link">
+      <visual>
+        <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${pan_tilt_support_length}" radius="${arm_support_radius}"/>
+        </geometry>
+        <material name="arm_support_grey"/>
+      </visual>
+    </link>
+
+    <joint name="base_pan_tilt_support_joint" type="fixed">
+      <origin xyz="${pan_tilt_mount_x} ${pan_tilt_mount_y} ${pan_tilt_mount_z}" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child link="pan_tilt_support_link"/>
+    </joint>
+
+    <!-- 云台 -->
+    <xacro:pan_tilt parent="base_link">
+      <origin xyz="${pan_tilt_mount_x} ${pan_tilt_mount_y} ${pan_tilt_mount_z}" rpy="0 0 0"/>
+    </xacro:pan_tilt>
+
+    <!-- 相机支撑柱（仅视觉） -->
+    <xacro:property name="camera_mount_z" value="0.1"/>
+    <link name="camera_support_link">
+      <visual>
+        <origin xyz="0 0 ${camera_mount_z/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${camera_mount_z}" radius="${arm_support_radius}"/>
+        </geometry>
+        <material name="arm_support_grey"/>
+      </visual>
+    </link>
+
+    <joint name="pan_tilt_camera_support_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="pan_tilt_surface"/>
+      <child link="camera_support_link"/>
+    </joint>
+
+    <!-- D455 相机（挂载到云台顶部，z 方向偏移 0.1m） -->
+    <xacro:realsense_sensor rs_model="d455"
+                            prefix="head"
+                            parent="pan_tilt_surface"
+                            topic="d455"
+                            include="0">
+      <origin xyz="0 0 ${camera_mount_z}" rpy="0 0 0"/>
+    </xacro:realsense_sensor>
+
+  </xacro:if>
 
 </robot>
