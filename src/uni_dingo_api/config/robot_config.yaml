@@ -14,10 +14,11 @@ subsystems:
     odom_topic: "/odometry/filtered"
     max_linear_vel: 1.0   # m/s
     max_angular_vel: 2.0  # rad/s
+    model_name: "uni_dingo_dual_arm"  # For Gazebo services
 
   left_arm:
     enabled: true
-    planning_group: "left_arm"
+    planning_group: "left_arm_manipulator"
     end_effector_link: "left_link06"
     joint_names:
       - "left_joint1"
@@ -32,7 +33,7 @@ subsystems:
 
   right_arm:
     enabled: true
-    planning_group: "right_arm"
+    planning_group: "right_arm_manipulator"
     end_effector_link: "right_link06"
     joint_names:
       - "right_joint1"
@@ -46,14 +47,35 @@ subsystems:
       joint_name: "right_gripper"
 
   head:
-    enabled: false  # Not implemented in Phase 1
-    pan_joint: "pan_joint"
-    tilt_joint: "tilt_joint"
+    enabled: true
+    pan_joint: "pan_tilt_yaw_joint"
+    tilt_joint: "pan_tilt_pitch_joint"
+    # Limits in radians (±60 degrees)
+    pan_min: -1.047
+    pan_max: 1.047
+    tilt_min: -1.047
+    tilt_max: 1.047
+    # Simulation topics (Gazebo position controllers)
+    sim_pan_topic: "/pan_tilt/pan_controller/command"
+    sim_tilt_topic: "/pan_tilt/tilt_controller/command"
+    # Real robot topics
+    real_cmd_topic: "/pan_tilt_cmd_deg"
+    real_status_topic: "/pan_tilt_status"
 
   perception:
-    enabled: false  # Not implemented in Phase 1
-    camera_topic: "/camera/color/image_raw"
-    depth_topic: "/camera/depth/image_raw"
+    enabled: true
+    camera_frame: "camera_link"
+    optical_frame: "camera_color_optical_frame"
+    # Simulation topics (Gazebo camera)
+    sim_rgb_topic: "/camera/color/image_raw"
+    sim_depth_topic: "/camera/depth/image_raw"
+    sim_points_topic: "/camera/depth/points"
+    sim_camera_info_topic: "/camera/color/camera_info"
+    # Real robot topics (RealSense D455)
+    real_rgb_topic: "/d455/color/image_raw"
+    real_depth_topic: "/d455/aligned_depth_to_color/image_raw"
+    real_points_topic: "/d455/depth/color/points"
+    real_camera_info_topic: "/d455/color/camera_info"
 
 # Named poses for arms
 named_poses:
@@ -66,6 +88,9 @@ named_poses:
   tucked:
     left: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
     right: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
+  stow:
+    left: [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0]
+    right: [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0]
 
 # Motion parameters
 motion:

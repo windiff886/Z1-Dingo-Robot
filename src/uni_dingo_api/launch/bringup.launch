@@ -8,6 +8,8 @@
       roslaunch uni_dingo_api bringup.launch mode:=real         # Real robot
       roslaunch uni_dingo_api bringup.launch gui:=false         # Headless simulation
       roslaunch uni_dingo_api bringup.launch rviz:=false        # No RViz
+      roslaunch uni_dingo_api bringup.launch head:=true         # Enable head
+      roslaunch uni_dingo_api bringup.launch perception:=true   # Enable perception
   -->
 
   <!-- Operating mode -->
@@ -28,8 +30,8 @@
   <arg name="base" default="true" />
   <arg name="left_arm" default="true" />
   <arg name="right_arm" default="true" />
-  <arg name="head" default="false" />
-  <arg name="perception" default="false" />
+  <arg name="head" default="true" doc="Enable pan-tilt head" />
+  <arg name="perception" default="true" doc="Enable camera perception" />
 
   <!-- Robot spawn pose -->
   <arg name="x" default="0" />
@@ -43,6 +45,13 @@
     <!-- Load unified config to parameter server -->
     <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
     <param name="uni_dingo/robot/mode" value="simulation" />
+
+    <!-- Override subsystem enables based on args -->
+    <param name="uni_dingo/subsystems/base/enabled" value="$(arg base)" />
+    <param name="uni_dingo/subsystems/left_arm/enabled" value="$(arg left_arm)" />
+    <param name="uni_dingo/subsystems/right_arm/enabled" value="$(arg right_arm)" />
+    <param name="uni_dingo/subsystems/head/enabled" value="$(arg head)" />
+    <param name="uni_dingo/subsystems/perception/enabled" value="$(arg perception)" />
 
     <!-- Launch the existing dual_arm_gazebo_moveit -->
     <include file="$(find uni_dingo)/launch/dual_arm_gazebo_moveit.launch">
@@ -59,6 +68,14 @@
       <arg name="yaw" value="$(arg yaw)" />
     </include>
 
+    <!-- Pan-Tilt Controllers (if head enabled) -->
+    <group if="$(arg head)" ns="pan_tilt">
+      <rosparam command="load" file="$(find uni_dingo_api)/config/pan_tilt_controllers.yaml" />
+      <node name="pan_tilt_controller_spawner" pkg="controller_manager" type="spawner"
+            args="pan_tilt_joint_state_controller pan_controller tilt_controller"
+            output="screen" respawn="false" />
+    </group>
+
   </group>
 
   <!-- ==================== REAL ROBOT MODE ==================== -->
@@ -67,6 +84,13 @@
     <!-- Load unified config -->
     <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
     <param name="uni_dingo/robot/mode" value="real" />
+
+    <!-- Override subsystem enables based on args -->
+    <param name="uni_dingo/subsystems/base/enabled" value="$(arg base)" />
+    <param name="uni_dingo/subsystems/left_arm/enabled" value="$(arg left_arm)" />
+    <param name="uni_dingo/subsystems/right_arm/enabled" value="$(arg right_arm)" />
+    <param name="uni_dingo/subsystems/head/enabled" value="$(arg head)" />
+    <param name="uni_dingo/subsystems/perception/enabled" value="$(arg perception)" />
 
     <!-- Real robot bringup would go here -->
     <!-- This is a placeholder for Phase 3 -->
@@ -79,9 +103,19 @@
     - Dingo base driver
     - Z1 hardware interface
     - Pan-tilt driver
-    - Camera driver
+    - Camera driver (RealSense)
     - MoveIt (with real controllers)
     -->
+
+    <!-- Pan-Tilt Driver (if head enabled) -->
+    <group if="$(arg head)">
+      <include file="$(find pan_tilt_bringup)/launch/panTilt_bringup.launch" />
+    </group>
+
+    <!-- RealSense Camera (if perception enabled) -->
+    <group if="$(arg perception)">
+      <include file="$(find d455_camera)/launch/d455_camera_nodelet.launch" />
+    </group>
 
   </group>
 

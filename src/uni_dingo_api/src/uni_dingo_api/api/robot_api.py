@@ -11,6 +11,8 @@ from typing import Optional, Dict, Any
 
 from .base_api import BaseAPI
 from .arm_api import ArmAPI
+from .head_api import HeadAPI
+from .perception_api import PerceptionAPI
 from .action_future import ActionFuture
 
 # Import backends
@@ -126,15 +128,21 @@ class RobotAPI:
         else:
             self.arms = None
 
-        # Head (placeholder for Phase 2)
-        self.head = None
-        if subsystems.get('head', {}).get('enabled', False):
-            rospy.loginfo("Head subsystem: Not implemented in Phase 1")
+        # Head (pan-tilt)
+        head_config = subsystems.get('head', {})
+        if head_config.get('enabled', False):
+            self.head = HeadAPI(mode=self._mode, config=head_config)
+        else:
+            self.head = None
+            rospy.loginfo("Head subsystem disabled")
 
-        # Perception (placeholder for Phase 2)
-        self.perception = None
-        if subsystems.get('perception', {}).get('enabled', False):
-            rospy.loginfo("Perception subsystem: Not implemented in Phase 1")
+        # Perception (camera)
+        perception_config = subsystems.get('perception', {})
+        if perception_config.get('enabled', False):
+            self.perception = PerceptionAPI(mode=self._mode, config=perception_config)
+        else:
+            self.perception = None
+            rospy.loginfo("Perception subsystem disabled")
 
         rospy.loginfo("RobotAPI initialization complete")
 
@@ -216,6 +224,25 @@ class RobotAPI:
                     } if ee_pose else None
                 }
 
+        # Head state
+        if self.head:
+            pan, tilt = self.head.get_angles()
+            state['head'] = {
+                'enabled': self.head.is_enabled(),
+                'pan': pan,
+                'tilt': tilt,
+                'pan_deg': self.head.get_angles_deg()[0],
+                'tilt_deg': self.head.get_angles_deg()[1]
+            }
+
+        # Perception state
+        if self.perception:
+            state['perception'] = {
+                'enabled': self.perception.is_enabled(),
+                'has_data': self.perception.has_data(),
+                'topics': self.perception.get_topics()
+            }
+
         return state
 
     def is_ready(self) -> bool:
@@ -253,6 +280,10 @@ class RobotAPI:
             self.right_arm.stop()
             self.right_arm.set_enabled(False)
 
+        if self.head:
+            self.head.stop()
+            self.head.set_enabled(False)
+
         rospy.logwarn("EMERGENCY STOP ACTIVATED")
 
     def recover(self) -> bool:
@@ -270,6 +301,9 @@ class RobotAPI:
 
         if self.right_arm:
             self.right_arm.set_enabled(True)
+
+        if self.head:
+            self.head.set_enabled(True)
 
         self._emergency_stopped = False
         rospy.loginfo("Emergency stop released")
@@ -368,6 +402,8 @@ class RobotAPI:
             self.left_arm.stop()
         if self.right_arm:
             self.right_arm.stop()
+        if self.head:
+            self.head.stop()
 
     @property
     def mode(self) -> str:
