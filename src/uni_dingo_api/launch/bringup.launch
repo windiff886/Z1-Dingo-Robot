@@ -81,49 +81,27 @@
   <!-- ==================== REAL ROBOT MODE ==================== -->
   <group if="$(eval arg('mode') == 'real')">
 
-    <!-- Load unified config -->
-    <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
-    <param name="uni_dingo/robot/mode" value="real" />
-
-    <!-- Override subsystem enables based on args -->
-    <param name="uni_dingo/subsystems/base/enabled" value="$(arg base)" />
-    <param name="uni_dingo/subsystems/left_arm/enabled" value="$(arg left_arm)" />
-    <param name="uni_dingo/subsystems/right_arm/enabled" value="$(arg right_arm)" />
-    <param name="uni_dingo/subsystems/head/enabled" value="$(arg head)" />
-    <param name="uni_dingo/subsystems/perception/enabled" value="$(arg perception)" />
-
-    <!-- Real robot bringup would go here -->
-    <!-- This is a placeholder for Phase 3 -->
-
-    <node pkg="rostopic" type="rostopic" name="mode_info"
-          args="pub -1 /uni_dingo/mode std_msgs/String 'real'" />
-
-    <!--
-    TODO (Phase 3): Add real robot launch includes:
-    - Dingo base driver
-    - Z1 hardware interface
-    - Pan-tilt driver
-    - Camera driver (RealSense)
-    - MoveIt (with real controllers)
-    -->
-
-    <!-- Pan-Tilt Driver (if head enabled) -->
-    <group if="$(arg head)">
-      <include file="$(find pan_tilt_bringup)/launch/panTilt_bringup.launch" />
-    </group>
-
-    <!-- RealSense Camera (if perception enabled) -->
-    <group if="$(arg perception)">
-      <include file="$(find d455_camera)/launch/d455_camera_nodelet.launch" />
-    </group>
+    <!-- Include the dedicated real robot launch file -->
+    <include file="$(find uni_dingo_api)/launch/real_robot.launch">
+      <arg name="base" value="$(arg base)" />
+      <arg name="left_arm" value="$(arg left_arm)" />
+      <arg name="right_arm" value="$(arg right_arm)" />
+      <arg name="head" value="$(arg head)" />
+      <arg name="perception" value="$(arg perception)" />
+      <arg name="moveit" value="$(arg moveit)" />
+      <arg name="rviz" value="$(arg rviz)" />
+    </include>
 
   </group>
 
-  <!-- ==================== COMMON NODES ==================== -->
+  <!-- ==================== COMMON NODES (Simulation Only) ==================== -->
+  <!-- Note: real_robot.launch includes its own state publisher -->
 
-  <!-- Robot state publisher node (publishes unified robot state) -->
-  <node pkg="uni_dingo_api" type="robot_state_publisher.py" name="uni_dingo_state_publisher" output="screen">
-    <param name="publish_rate" value="10.0" />
-  </node>
+  <group if="$(eval arg('mode') == 'simulation')">
+    <!-- Robot state publisher node (publishes unified robot state) -->
+    <node pkg="uni_dingo_api" type="robot_state_publisher.py" name="uni_dingo_state_publisher" output="screen">
+      <param name="publish_rate" value="10.0" />
+    </node>
+  </group>
 
 </launch>

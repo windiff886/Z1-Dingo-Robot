@@ -1,0 +1,183 @@
+<launch>
+  <!--
+    Uni-Dingo Real Robot Bringup
+    ============================
+
+    Usage:
+      roslaunch uni_dingo_api real_robot.launch                    # All subsystems
+      roslaunch uni_dingo_api real_robot.launch head:=false        # No pan-tilt
+      roslaunch uni_dingo_api real_robot.launch perception:=false  # No camera
+      roslaunch uni_dingo_api real_robot.launch moveit:=true       # Enable MoveIt
+
+    Prerequisites:
+      - Dingo base must be powered on and connected via Ethernet
+      - Z1 arms must be powered on and connected (left: 192.168.123.110, right: 192.168.123.111)
+      - Pan-tilt unit connected via USB (/dev/pan_tilt)
+      - RealSense D455 connected via USB
+  -->
+
+  <!-- Subsystem enables -->
+  <arg name="base" default="true" doc="Enable Dingo mobile base" />
+  <arg name="left_arm" default="true" doc="Enable left Z1 arm" />
+  <arg name="right_arm" default="true" doc="Enable right Z1 arm" />
+  <arg name="head" default="true" doc="Enable pan-tilt head" />
+  <arg name="perception" default="true" doc="Enable D455 camera" />
+
+  <!-- Z1 arm configuration -->
+  <arg name="left_arm_ip" default="192.168.123.110" />
+  <arg name="right_arm_ip" default="192.168.123.111" />
+  <arg name="UnitreeGripper" default="true" doc="Arms have Unitree grippers" />
+
+  <!-- Motion planning -->
+  <arg name="moveit" default="false" doc="Enable MoveIt motion planning" />
+  <arg name="rviz" default="false" doc="Launch RViz visualization" />
+
+  <!-- Camera configuration -->
+  <arg name="camera_serial" default="" doc="D455 serial number (leave empty for any)" />
+  <arg name="color_fps" default="30" />
+  <arg name="depth_fps" default="30" />
+
+  <!-- Pan-tilt configuration -->
+  <arg name="pan_tilt_port" default="/dev/pan_tilt" />
+
+  <!-- ==================== Load Configuration ==================== -->
+
+  <rosparam command="load" file="$(find uni_dingo_api)/config/robot_config.yaml" ns="uni_dingo" />
+  <param name="uni_dingo/robot/mode" value="real" />
+
+  <!-- Override subsystem enables based on args -->
+  <param name="uni_dingo/subsystems/base/enabled" value="$(arg base)" />
+  <param name="uni_dingo/subsystems/left_arm/enabled" value="$(arg left_arm)" />
+  <param name="uni_dingo/subsystems/right_arm/enabled" value="$(arg right_arm)" />
+  <param name="uni_dingo/subsystems/head/enabled" value="$(arg head)" />
+  <param name="uni_dingo/subsystems/perception/enabled" value="$(arg perception)" />
+
+  <!-- ==================== Robot Description ==================== -->
+
+  <param name="robot_description" command="$(find xacro)/xacro --inorder
+    '$(find unidingo_description)/urdf/uni_dingo_dual_arm.urdf.xacro'
+    UnitreeGripper:=$(arg UnitreeGripper)" />
+
+  <!-- Robot state publisher -->
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" />
+
+  <!-- ==================== Dingo Base ==================== -->
+
+  <group if="$(arg base)">
+    <include file="$(find dingo_base)/launch/base.launch">
+      <arg name="wireless_interface" value="wlan0" />
+    </include>
+  </group>
+
+  <!-- ==================== Z1 Arms ==================== -->
+
+  <!-- Left Arm -->
+  <group if="$(arg left_arm)" ns="left_arm">
+    <!-- Z1 Controller -->
+    <include file="$(find z1_bringup)/launch/real_ctrl.launch">
+      <arg name="arm_ip" value="$(arg left_arm_ip)" />
+      <arg name="port_to_mcu" value="8881" />
+      <arg name="port_to_sdk" value="8871" />
+    </include>
+
+    <!-- ROS Control Hardware Interface -->
+    <rosparam file="$(find unidingo_description)/config/left_controllers.yaml" command="load" />
+    <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
+      <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)" />
+      <param name="joint_prefix" value="left_" />
+      <param name="udp/mcu_ip" value="$(arg left_arm_ip)" />
+      <param name="udp/port_to_mcu" value="8881" />
+      <param name="udp/port_to_sdk" value="8871" />
+      <param name="udp_to_controller/controller_ip" value="127.0.0.1" />
+      <param name="udp_to_controller/own_port" value="8872" />
+    </node>
+    <node name="controller_spawner" pkg="controller_manager" type="spawner"
+          respawn="false" output="screen"
+          args="left_joint_state_controller left_z1_joint_traj_controller" />
+  </group>
+
+  <!-- Right Arm -->
+  <group if="$(arg right_arm)" ns="right_arm">
+    <!-- Z1 Controller -->
+    <include file="$(find z1_bringup)/launch/real_ctrl.launch">
+      <arg name="arm_ip" value="$(arg right_arm_ip)" />
+      <arg name="port_to_mcu" value="8882" />
+      <arg name="port_to_sdk" value="8873" />
+    </include>
+
+    <!-- ROS Control Hardware Interface -->
+    <rosparam file="$(find unidingo_description)/config/right_controllers.yaml" command="load" />
+    <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
+      <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)" />
+      <param name="joint_prefix" value="right_" />
+      <param name="udp/mcu_ip" value="$(arg right_arm_ip)" />
+      <param name="udp/port_to_mcu" value="8882" />
+      <param name="udp/port_to_sdk" value="8873" />
+      <param name="udp_to_controller/controller_ip" value="127.0.0.1" />
+      <param name="udp_to_controller/own_port" value="8874" />
+    </node>
+    <node name="controller_spawner" pkg="controller_manager" type="spawner"
+          respawn="false" output="screen"
+          args="right_joint_state_controller right_z1_joint_traj_controller" />
+  </group>
+
+  <!-- Joint State Merger (combine left and right arm joint states) -->
+  <group if="$(eval arg('left_arm') or arg('right_arm'))">
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher">
+      <rosparam param="source_list">[/left_arm/joint_states, /right_arm/joint_states]</rosparam>
+      <param name="rate" value="200" />
+    </node>
+  </group>
+
+  <!-- ==================== Pan-Tilt Head ==================== -->
+
+  <group if="$(arg head)">
+    <node name="pan_tilt_driver" pkg="pan_tilt_driver" type="PanTiltDriverNode" output="screen">
+      <param name="ID" value="1" />
+      <param name="port_name" value="$(arg pan_tilt_port)" />
+      <param name="yaw_joint_name" value="pan_tilt_yaw_joint" />
+      <param name="pitch_joint_name" value="pan_tilt_pitch_joint" />
+    </node>
+  </group>
+
+  <!-- ==================== D455 Camera ==================== -->
+
+  <group if="$(arg perception)">
+    <include file="$(find d455_camera)/launch/d455_camera_nodelet.launch">
+      <arg name="serial_no" value="$(arg camera_serial)" />
+      <arg name="color_fps" value="$(arg color_fps)" />
+      <arg name="depth_fps" value="$(arg depth_fps)" />
+    </include>
+  </group>
+
+  <!-- ==================== MoveIt (Optional) ==================== -->
+
+  <group if="$(arg moveit)">
+    <include file="$(find z1_dual_moveit_config)/launch/move_group.launch">
+      <arg name="allow_trajectory_execution" value="true" />
+      <arg name="fake_execution" value="false" />
+    </include>
+  </group>
+
+  <!-- ==================== RViz (Optional) ==================== -->
+
+  <group if="$(arg rviz)">
+    <group if="$(arg moveit)">
+      <include file="$(find z1_dual_moveit_config)/launch/moveit_rviz.launch">
+        <arg name="rviz_config" value="$(find z1_dual_moveit_config)/launch/moveit.rviz" />
+      </include>
+    </group>
+    <group unless="$(arg moveit)">
+      <node name="rviz" pkg="rviz" type="rviz"
+            args="-d $(find uni_dingo_api)/config/real_robot.rviz"
+            output="screen" />
+    </group>
+  </group>
+
+  <!-- ==================== Unified Robot State Publisher ==================== -->
+
+  <node pkg="uni_dingo_api" type="robot_state_publisher.py" name="uni_dingo_state_publisher" output="screen">
+    <param name="publish_rate" value="10.0" />
+  </node>
+
+</launch>
