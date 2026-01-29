@@ -45,10 +45,8 @@ import select
 import termios
 import tty
 import threading
-import copy
 import rospy
 from geometry_msgs.msg import Pose
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from uni_dingo_api import RobotAPI
 
@@ -166,19 +164,6 @@ class KeyboardTeleop:
         rospy.loginfo("Initializing RobotAPI...")
         self.robot = RobotAPI(mode=mode, init_node=False)
 
-        # 夹爪控制发布器
-        self.gripper_pubs = {
-            'left': rospy.Publisher(
-                '/left_arm/left_z1_joint_traj_controller/command',
-                JointTrajectory, queue_size=10
-            ),
-            'right': rospy.Publisher(
-                '/right_arm/right_z1_joint_traj_controller/command',
-                JointTrajectory, queue_size=10
-            )
-        }
-        rospy.sleep(0.5)  # 等待发布器就绪
-
         # 发布线程
         self.pub_thread = threading.Thread(target=self._publish_loop, daemon=True)
         self.pub_thread.start()
@@ -236,52 +221,18 @@ class KeyboardTeleop:
         thread.start()
 
     def _control_gripper(self, side, action):
-        """控制夹爪 - 通过轨迹控制器"""
-        if side == 'left' and self.robot.left_arm is None:
-            rospy.logwarn("左臂未启用")
-            return
-        if side == 'right' and self.robot.right_arm is None:
-            rospy.logwarn("右臂未启用")
-            return
-
-        # 夹爪位置: 打开=-1.57, 关闭=0.0
-        if action == 'open':
-            gripper_pos = -1.0
-            rospy.loginfo(f"{side}臂夹爪打开")
-        else:
-            gripper_pos = 0.0
-            rospy.loginfo(f"{side}臂夹爪关闭")
-
-        # 构建轨迹消息
-        traj = JointTrajectory()
-        traj.header.stamp = rospy.Time.now()
-
-        if side == 'left':
-            traj.joint_names = ['left_joint1', 'left_joint2', 'left_joint3',
-                               'left_joint4', 'left_joint5', 'left_joint6', 'left_gripper']
-        else:
-            traj.joint_names = ['right_joint1', 'right_joint2', 'right_joint3',
-                               'right_joint4', 'right_joint5', 'right_joint6', 'right_gripper']
-
-        # 获取当前关节状态
+        """控制夹爪 - 通过 ArmAPI"""
         arm = self.robot.left_arm if side == 'left' else self.robot.right_arm
-        if arm:
-            joint_states = arm.get_joint_states()
-            if joint_states and 'positions' in joint_states:
-                point = JointTrajectoryPoint()
-                # 保持当前关节位置，只改变夹爪
-                positions = list(joint_states['positions'])
-                if len(positions) >= 6:
-                    positions = positions[:6]  # 取前6个关节
-                    positions.append(gripper_pos)  # 添加夹爪
-                    point.positions = positions
-                    point.time_from_start = rospy.Duration(0.5)
-                    traj.points.append(point)
+        if arm is None:
+            rospy.logwarn(f"{side}臂未启用")
+            return
 
-                    self.gripper_pubs[side].publish(traj)
-                    return
-
-        rospy.logwarn(f"无法获取{side}臂关节状态")
+        if action == 'open':
+            rospy.loginfo(f"{side}臂夹爪打开")
+            arm.gripper_open()
+        else:
+            rospy.loginfo(f"{side}臂夹爪关闭")
+            arm.gripper_close()
 
     def _move_ee_relative(self, dx, dy, dz):
         """相对移动末端执行器"""

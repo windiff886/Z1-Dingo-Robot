@@ -9,8 +9,10 @@ from geometry_msgs.msg import Pose, PoseStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from control_msgs.msg import GripperCommandAction, GripperCommandGoal
 from typing import Optional, List, Dict, Literal
 import threading
+import actionlib
 
 from .action_future import ActionFuture
 
@@ -81,18 +83,26 @@ class ArmAPI:
             '/joint_states', JointState, self._joint_state_callback, queue_size=10
         )
 
-        # Gripper publishers
-        self._gripper_pubs = {}
+        # Gripper action clients
+        self._gripper_clients = {}
         if side in ['left', 'both']:
-            self._gripper_pubs['left'] = rospy.Publisher(
-                '/left_arm/left_z1_joint_traj_controller/command',
-                JointTrajectory, queue_size=10
+            client = actionlib.SimpleActionClient(
+                '/left_arm/left_z1_gripper', GripperCommandAction
             )
+            if client.wait_for_server(rospy.Duration(2.0)):
+                self._gripper_clients['left'] = client
+                rospy.loginfo("  Left gripper action server connected")
+            else:
+                rospy.logwarn("  Left gripper action server not available")
         if side in ['right', 'both']:
-            self._gripper_pubs['right'] = rospy.Publisher(
-                '/right_arm/right_z1_joint_traj_controller/command',
-                JointTrajectory, queue_size=10
+            client = actionlib.SimpleActionClient(
+                '/right_arm/right_z1_gripper', GripperCommandAction
             )
+            if client.wait_for_server(rospy.Duration(2.0)):
+                self._gripper_clients['right'] = client
+                rospy.loginfo("  Right gripper action server connected")
+            else:
+                rospy.logwarn("  Right gripper action server not available")
 
         # Motion parameters
         self._velocity_scaling = config.get('default_velocity_scaling', 0.3) if config else 0.3
@@ -455,12 +465,12 @@ class ArmAPI:
         """
         return self._gripper_command(side or self._side, position)
 
-    def _gripper_command(self, side: str, position: float) -> ActionFuture:
-        """Send gripper command via trajectory controller."""
+    def _gripper_command(self, side: str, position: float, max_effort: float = 10.0) -> ActionFuture:
+        """Send gripper command via GripperCommandAction."""
         if side == 'both':
             # Command both grippers
-            f1 = self._gripper_command('left', position)
-            f2 = self._gripper_command('right', position)
+            f1 = self._gripper_command('left', position, max_effort)
+            f2 = self._gripper_command('right', position, max_effort)
             # Return composite future
             future = ActionFuture()
 
@@ -475,15 +485,40 @@ class ArmAPI:
             return future
 
         # Single gripper command
-        future = ActionFuture.success()
+        if side not in self._gripper_clients:
+            return ActionFuture.failure(f"Gripper {side} not available")
 
-        try:
-            # For now, gripper is controlled via trajectory controller
-            # In a full implementation, this would use a dedicated gripper action
-            rospy.loginfo(f"Gripper {side}: set to {position}")
-            # The actual gripper control would be implemented based on hardware
-        except Exception as e:
-            return ActionFuture.failure(str(e))
+        future = ActionFuture()
+
+        def execute():
+            try:
+                goal = GripperCommandGoal()
+                goal.command.position = position
+                goal.command.max_effort = max_effort
+
+                client = self._gripper_clients[side]
+                client.send_goal(goal)
+
+                # Wait for result with timeout
+                if client.wait_for_result(rospy.Duration(5.0)):
+                    result = client.get_result()
+                    future._success = True
+                    future._result = {
+                        'position': result.position,
+                        'effort': result.effort,
+                        'reached_goal': result.reached_goal
+                    }
+                else:
+                    future._success = False
+                    future._error_msg = "Gripper action timed out"
+            except Exception as e:
+                future._success = False
+                future._error_msg = str(e)
+            finally:
+                future._done.set()
+
+        thread = threading.Thread(target=execute, daemon=True)
+        thread.start()
 
         return future
 

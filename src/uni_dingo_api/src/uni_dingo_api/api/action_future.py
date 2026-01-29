@@ -88,32 +88,28 @@ class ActionFuture:
         Returns:
             self for chaining
         """
-        if self._sync_mode:
-            return self
-
         wait_time = timeout if timeout is not None else self._timeout
+
         if self._client:
+            # Using action client - wait via client API
             self._client.wait_for_result(rospy.Duration(wait_time))
         else:
+            # No action client (manual threading) - wait on event
             self._done.wait(wait_time)
+
         return self
 
     def is_done(self) -> bool:
         """Check if the action has completed."""
-        if self._sync_mode:
-            return True
         return self._done.is_set()
 
     def is_success(self) -> bool:
         """Check if the action succeeded."""
-        if self._sync_mode:
-            return self._success
         return self._success
 
     def get_result(self) -> Any:
         """Get the action result (blocks if not done)."""
-        if not self._sync_mode:
-            self.wait()
+        self.wait()
         return self._result
 
     def get_error(self) -> str:
