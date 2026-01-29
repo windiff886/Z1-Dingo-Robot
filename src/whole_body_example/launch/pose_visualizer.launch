@@ -1,0 +1,23 @@
+<launch>
+    <!-- Pose Visualizer - 在 RViz 中可视化机械臂位姿 -->
+
+    <!-- 直接加载 URDF -->
+    <param name="robot_description"
+           command="$(find xacro)/xacro '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro'
+                    UnitreeGripper:=true PanTilt:=true"/>
+
+    <!-- Robot State Publisher - 发布 TF -->
+    <node name="robot_state_publisher" pkg="robot_state_publisher"
+          type="robot_state_publisher" output="screen">
+        <param name="publish_frequency" value="50"/>
+    </node>
+
+    <!-- RViz (后台运行) -->
+    <node name="rviz" pkg="rviz" type="rviz"
+          args="-d $(find whole_body_example)/rviz/pose_visualizer.rviz"
+          output="log"/>
+
+    <!-- Pose Visualizer Node (前台交互) -->
+    <node name="pose_visualizer" pkg="whole_body_example"
+          type="pose_visualizer.py" output="screen" required="true"/>
+</launch>

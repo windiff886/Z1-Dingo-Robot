@@ -21,7 +21,8 @@ class D455CameraNodelet : public nodelet::Nodelet {
   D455CameraNodelet()
       : running_(false),
         enable_color_(true),
-        enable_depth_(true) {}
+        enable_depth_(true),
+        use_hardware_time_(true) {}
 
   ~D455CameraNodelet() override { Stop(); }
 
@@ -41,6 +42,7 @@ class D455CameraNodelet : public nodelet::Nodelet {
     pnh.param("depth_fps", depth_fps_, 30);
     pnh.param("color_frame_id", color_frame_id_, std::string("d455_color_optical_frame"));
     pnh.param("depth_frame_id", depth_frame_id_, std::string("d455_depth_optical_frame"));
+    pnh.param("use_hardware_time", use_hardware_time_, true);
 
     if (!enable_color_ && !enable_depth_) {
       NODELET_ERROR("Both color and depth streams are disabled.");
@@ -73,6 +75,22 @@ class D455CameraNodelet : public nodelet::Nodelet {
     } catch (const rs2::error &e) {
       NODELET_ERROR("Failed to start RealSense pipeline: %s", e.what());
       return;
+    }
+
+    // Enable global time synchronization if requested
+    if (use_hardware_time_) {
+      try {
+        auto device = pipeline_profile_.get_device();
+        for (auto &sensor : device.query_sensors()) {
+          if (sensor.supports(RS2_OPTION_GLOBAL_TIME_ENABLED)) {
+            sensor.set_option(RS2_OPTION_GLOBAL_TIME_ENABLED, 1.0f);
+            NODELET_INFO("Global time enabled for sensor: %s", sensor.get_info(RS2_CAMERA_INFO_NAME));
+          }
+        }
+      } catch (const rs2::error &e) {
+        NODELET_WARN("Failed to enable global time: %s. Using ROS time instead.", e.what());
+        use_hardware_time_ = false;
+      }
     }
 
     try {
@@ -121,7 +139,16 @@ class D455CameraNodelet : public nodelet::Nodelet {
         continue;
       }
 
-      const ros::Time stamp = ros::Time::now();
+      // Get timestamp: use hardware global time if enabled, otherwise use ROS time
+      ros::Time stamp;
+      if (use_hardware_time_) {
+        // RS2 returns timestamp in milliseconds, convert to ros::Time
+        // When global time is enabled, the timestamp is in system clock domain
+        double frame_ts_ms = frames.get_timestamp();
+        stamp = ros::Time(frame_ts_ms / 1000.0);
+      } else {
+        stamp = ros::Time::now();
+      }
 
       if (enable_color_) {
         rs2::video_frame color_frame = frames.get_color_frame();
@@ -219,6 +246,7 @@ class D455CameraNodelet : public nodelet::Nodelet {
 
   bool enable_color_;
   bool enable_depth_;
+  bool use_hardware_time_;
   int color_width_;
   int color_height_;
   int color_fps_;

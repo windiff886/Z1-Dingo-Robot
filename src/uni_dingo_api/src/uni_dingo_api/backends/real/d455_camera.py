@@ -12,7 +12,7 @@ from dynamic_reconfigure.client import Client as DynamicReconfigureClient
 from typing import Optional, Dict, Tuple
 import numpy as np
 
-from ..api.perception_api import PerceptionAPI
+from ...api.perception_api import PerceptionAPI
 
 
 class D455CameraBackend(PerceptionAPI):
@@ -534,11 +534,18 @@ class D455CameraBackend(PerceptionAPI):
         if rgb is None or depth is None:
             return None
 
+        # Use original image timestamp, not current time
+        with self._data_lock:
+            if self._latest_rgb is not None:
+                timestamp = self._latest_rgb.header.stamp.to_sec()
+            else:
+                timestamp = 0.0
+
         return {
             'rgb': rgb,
             'depth': depth,
             'camera_info': info,
-            'timestamp': rospy.Time.now().to_sec()
+            'timestamp': timestamp
         }
 
     # ==================== Full Status ====================

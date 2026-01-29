@@ -176,18 +176,21 @@ class RobotAPI:
         Get complete robot state.
 
         Returns:
-            Dictionary with all subsystem states
+            Dictionary with all subsystem states.
+            - 'timestamp': query time (when this state was assembled)
+            - Each subsystem has its own 'timestamp' from original sensor data
         """
         state = {
             'mode': self._mode,
             'emergency_stopped': self._emergency_stopped,
-            'timestamp': rospy.Time.now().to_sec()
+            'timestamp': rospy.Time.now().to_sec()  # Query time for aggregate state
         }
 
         # Base state
         if self.base:
             pose = self.base.get_pose_2d()
             vel = self.base.get_velocity()
+            odom = self.base.get_odom() if hasattr(self.base, 'get_odom') else None
             state['base'] = {
                 'enabled': self.base.is_enabled(),
                 'moving': self.base.is_moving(),
@@ -196,7 +199,8 @@ class RobotAPI:
                     'linear_x': vel.linear.x,
                     'linear_y': vel.linear.y,
                     'angular_z': vel.angular.z
-                } if vel else None
+                } if vel else None,
+                'timestamp': odom.header.stamp.to_sec() if odom else 0.0
             }
 
         # Arm states
@@ -205,6 +209,8 @@ class RobotAPI:
             if arm:
                 joints = arm.get_joint_states()
                 ee_pose = arm.get_end_effector_pose()
+                # Get joint state timestamp if available
+                joint_stamp = joints.get('timestamp', 0.0) if joints else 0.0
                 state[f'{side}_arm'] = {
                     'enabled': arm.is_enabled(),
                     'moving': arm.is_moving(),
@@ -221,26 +227,39 @@ class RobotAPI:
                             'z': ee_pose.orientation.z,
                             'w': ee_pose.orientation.w
                         }
-                    } if ee_pose else None
+                    } if ee_pose else None,
+                    'timestamp': joint_stamp
                 }
 
         # Head state
         if self.head:
             pan, tilt = self.head.get_angles()
+            # Get head state timestamp if available
+            head_stamp = 0.0
+            if hasattr(self.head, 'get_status'):
+                status = self.head.get_status()
+                if status and hasattr(status, 'header'):
+                    head_stamp = status.header.stamp.to_sec()
             state['head'] = {
                 'enabled': self.head.is_enabled(),
                 'pan': pan,
                 'tilt': tilt,
                 'pan_deg': self.head.get_angles_deg()[0],
-                'tilt_deg': self.head.get_angles_deg()[1]
+                'tilt_deg': self.head.get_angles_deg()[1],
+                'timestamp': head_stamp
             }
 
         # Perception state
         if self.perception:
+            # Get perception timestamp from latest image if available
+            perception_stamp = 0.0
+            if hasattr(self.perception, '_latest_rgb') and self.perception._latest_rgb:
+                perception_stamp = self.perception._latest_rgb.header.stamp.to_sec()
             state['perception'] = {
                 'enabled': self.perception.is_enabled(),
                 'has_data': self.perception.has_data(),
-                'topics': self.perception.get_topics()
+                'topics': self.perception.get_topics(),
+                'timestamp': perception_stamp
             }
 
         return state

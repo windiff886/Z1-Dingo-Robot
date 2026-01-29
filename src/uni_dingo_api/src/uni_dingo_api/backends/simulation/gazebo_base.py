@@ -11,8 +11,8 @@ from gazebo_msgs.msg import ModelState
 from geometry_msgs.msg import Pose, Twist, Pose2D
 import math
 
-from ..api.base_api import BaseAPI
-from ..api.action_future import ActionFuture
+from ...api.base_api import BaseAPI
+from ...api.action_future import ActionFuture
 
 
 class GazeboBaseBackend(BaseAPI):

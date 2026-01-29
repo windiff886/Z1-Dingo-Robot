@@ -23,13 +23,13 @@
   <arg name="head" default="true" doc="Enable pan-tilt head" />
   <arg name="perception" default="true" doc="Enable D455 camera" />
 
-  <!-- Z1 arm configuration -->
-  <arg name="left_arm_ip" default="192.168.123.110" />
-  <arg name="right_arm_ip" default="192.168.123.111" />
+  <!-- Z1 arm configuration (swapped: rviz left = physical right) -->
+  <arg name="left_arm_ip" default="192.168.123.111" />
+  <arg name="right_arm_ip" default="192.168.123.110" />
   <arg name="UnitreeGripper" default="true" doc="Arms have Unitree grippers" />
 
   <!-- Motion planning -->
-  <arg name="moveit" default="false" doc="Enable MoveIt motion planning" />
+  <arg name="moveit" default="true" doc="Enable MoveIt motion planning" />
   <arg name="rviz" default="false" doc="Launch RViz visualization" />
 
   <!-- Camera configuration -->
@@ -52,69 +52,97 @@
   <param name="uni_dingo/subsystems/head/enabled" value="$(arg head)" />
   <param name="uni_dingo/subsystems/perception/enabled" value="$(arg perception)" />
 
-  <!-- ==================== Robot Description ==================== -->
-
-  <param name="robot_description" command="$(find xacro)/xacro --inorder
-    '$(find unidingo_description)/urdf/uni_dingo_dual_arm.urdf.xacro'
-    UnitreeGripper:=$(arg UnitreeGripper)" />
-
-  <!-- Robot state publisher -->
-  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" />
-
   <!-- ==================== Dingo Base ==================== -->
+  <!-- Note: We don't include dingo_base/base.launch directly because it loads
+       its own robot_description which conflicts with ours. Instead, we start
+       the dingo nodes manually. -->
 
   <group if="$(arg base)">
-    <include file="$(find dingo_base)/launch/base.launch">
-      <arg name="wireless_interface" value="wlan0" />
-    </include>
+    <!-- Force omni mode for 4-wheel Dingo-O -->
+    <env name="DINGO_OMNI" value="1" />
+
+    <!-- Dingo hardware node -->
+    <node pkg="rosserial_python" type="message_info_service.py" name="rosserial_message_info" />
+    <node pkg="dingo_base" type="dingo_node" name="dingo_node" output="screen">
+      <param name="dingo_omni" type="bool" value="true" />
+      <rosparam command="load" file="$(find dingo_base)/config/$(optenv DINGO_MOTOR_PARAMS base).yaml" />
+      <param name="wireless_interface" value="$(optenv DINGO_WIRELESS_INTERFACE wlp2s0)" />
+    </node>
+
+    <!-- IMU filter -->
+    <node pkg="imu_filter_madgwick" type="imu_filter_node" name="imu_filter">
+      <rosparam file="$(eval optenv('DINGO_MAG_CONFIG', find('dingo_base')+'/config/mag_config_default.yaml'))" />
+      <rosparam>
+        gain: 0.1
+        zeta: 0.001
+        publish_tf: false
+        use_magnetic_field_msg: true
+      </rosparam>
+    </node>
+
+    <!-- Dingo control (teleop disabled - use uni_dingo API instead) -->
+    <include file="$(find dingo_control)/launch/control.launch" />
+    <!-- <include file="$(find dingo_control)/launch/teleop.launch">
+      <arg name="teleop" value="$(optenv DINGO_TELEOP joystick)" />
+    </include> -->
   </group>
+
+  <!-- ==================== Robot Description ==================== -->
+  <!-- This must come AFTER dingo nodes but BEFORE robot_state_publisher -->
+
+  <param name="robot_description" command="$(find xacro)/xacro --inorder
+    '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro'
+    UnitreeGripper:=$(arg UnitreeGripper)" />
+
+  <!-- Single robot state publisher for the complete robot -->
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" />
 
   <!-- ==================== Z1 Arms ==================== -->
 
-  <!-- Left Arm -->
+  <!-- Left Arm (connects to physical right arm .111:8882) -->
   <group if="$(arg left_arm)" ns="left_arm">
     <!-- Z1 Controller -->
     <include file="$(find z1_bringup)/launch/real_ctrl.launch">
       <arg name="arm_ip" value="$(arg left_arm_ip)" />
-      <arg name="port_to_mcu" value="8881" />
-      <arg name="port_to_sdk" value="8871" />
+      <arg name="port_to_mcu" value="8882" />
+      <arg name="port_to_sdk" value="8873" />
     </include>
 
     <!-- ROS Control Hardware Interface -->
-    <rosparam file="$(find unidingo_description)/config/left_controllers.yaml" command="load" />
+    <rosparam file="$(find uni_dingo)/config/left_controllers.yaml" command="load" />
     <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
       <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)" />
       <param name="joint_prefix" value="left_" />
       <param name="udp/mcu_ip" value="$(arg left_arm_ip)" />
-      <param name="udp/port_to_mcu" value="8881" />
-      <param name="udp/port_to_sdk" value="8871" />
+      <param name="udp/port_to_mcu" value="8882" />
+      <param name="udp/port_to_sdk" value="8873" />
       <param name="udp_to_controller/controller_ip" value="127.0.0.1" />
-      <param name="udp_to_controller/own_port" value="8872" />
+      <param name="udp_to_controller/own_port" value="8874" />
     </node>
     <node name="controller_spawner" pkg="controller_manager" type="spawner"
           respawn="false" output="screen"
           args="left_joint_state_controller left_z1_joint_traj_controller" />
   </group>
 
-  <!-- Right Arm -->
+  <!-- Right Arm (connects to physical left arm .110:8881) -->
   <group if="$(arg right_arm)" ns="right_arm">
     <!-- Z1 Controller -->
     <include file="$(find z1_bringup)/launch/real_ctrl.launch">
       <arg name="arm_ip" value="$(arg right_arm_ip)" />
-      <arg name="port_to_mcu" value="8882" />
-      <arg name="port_to_sdk" value="8873" />
+      <arg name="port_to_mcu" value="8881" />
+      <arg name="port_to_sdk" value="8871" />
     </include>
 
     <!-- ROS Control Hardware Interface -->
-    <rosparam file="$(find unidingo_description)/config/right_controllers.yaml" command="load" />
+    <rosparam file="$(find uni_dingo)/config/right_controllers.yaml" command="load" />
     <node name="z1_hw_node" pkg="z1_hw" type="z1_hw_node" output="screen">
       <param name="UnitreeGripperYN" value="$(arg UnitreeGripper)" />
       <param name="joint_prefix" value="right_" />
       <param name="udp/mcu_ip" value="$(arg right_arm_ip)" />
-      <param name="udp/port_to_mcu" value="8882" />
-      <param name="udp/port_to_sdk" value="8873" />
+      <param name="udp/port_to_mcu" value="8881" />
+      <param name="udp/port_to_sdk" value="8871" />
       <param name="udp_to_controller/controller_ip" value="127.0.0.1" />
-      <param name="udp_to_controller/own_port" value="8874" />
+      <param name="udp_to_controller/own_port" value="8872" />
     </node>
     <node name="controller_spawner" pkg="controller_manager" type="spawner"
           respawn="false" output="screen"

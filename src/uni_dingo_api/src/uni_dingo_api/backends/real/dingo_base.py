@@ -12,8 +12,8 @@ from sensor_msgs.msg import BatteryState
 from diagnostic_msgs.msg import DiagnosticArray
 import threading
 
-from ..api.base_api import BaseAPI
-from ..api.action_future import ActionFuture
+from ...api.base_api import BaseAPI
+from ...api.action_future import ActionFuture
 
 
 class DingoBaseBackend(BaseAPI):

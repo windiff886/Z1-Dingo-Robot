@@ -14,8 +14,8 @@ from diagnostic_msgs.msg import DiagnosticArray
 from typing import List, Optional, Dict, Literal
 import threading
 
-from ..api.arm_api import ArmAPI
-from ..api.action_future import ActionFuture
+from ...api.arm_api import ArmAPI
+from ...api.action_future import ActionFuture
 
 
 class Z1ArmBackend(ArmAPI):

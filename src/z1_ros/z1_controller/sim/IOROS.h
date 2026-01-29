@@ -2,23 +2,28 @@
 #define IOROS_H
 
 #include <ros/ros.h>
-#include "interface/IOInterface.h"
-#include "message/MotorCmd.h"
-#include "message/MotorState.h"
+#include "IOInterface/IOInterface.h"
+#include "unitree_legged_msgs/MotorCmd.h"
+#include "unitree_legged_msgs/MotorState.h"
 
 class IOROS : public IOInterface{
 public:
     IOROS();
-    ~IOROS();
-    bool sendRecv(const LowlevelCmd *cmd, LowlevelState *state);
+    ~IOROS(){};
+
+    bool init() override;
+    bool sendRecv(const LowLevelCmd *cmd, LowLevelState *state) override;
+    bool isConnected() override;
 private:
     ros::NodeHandle _nm;
-    ros::Subscriber _servo_sub[7];
-    ros::Publisher _servo_pub[7];
-    unitree_legged_msgs::MotorState _joint_state[7];
-    unitree_legged_msgs::MotorCmd _joint_cmd[7];
-    void _sendCmd(const LowlevelCmd *cmd);
-    void _recvState(LowlevelState *state);
+    ros::Subscriber _servo_sub[6], _gripper_sub;
+    ros::Publisher _servo_pub[6], _gripper_pub;
+    unitree_legged_msgs::MotorState _joint_state[6]{}, _gripperState{};
+    unitree_legged_msgs::MotorCmd _joint_cmd[6]{}, _gripperCmd{};
+    bool _isConnected = false;
+
+    void _sendCmd(const LowLevelCmd *cmd);
+    void _recvState(LowLevelState *state);
     void _initRecv();
     void _initSend();
 

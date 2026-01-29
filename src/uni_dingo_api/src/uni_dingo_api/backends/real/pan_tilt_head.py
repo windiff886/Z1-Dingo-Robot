@@ -9,8 +9,8 @@ import math
 import threading
 from typing import Optional, Tuple, Dict
 
-from ..api.head_api import HeadAPI
-from ..api.action_future import ActionFuture
+from ...api.head_api import HeadAPI
+from ...api.action_future import ActionFuture
 
 # Import pan_tilt_msgs
 try:

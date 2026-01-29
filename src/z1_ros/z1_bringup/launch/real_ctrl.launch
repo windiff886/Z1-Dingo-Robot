@@ -7,7 +7,7 @@
   <arg name="port_to_mcu" default="8881"/>
   <arg name="port_to_sdk" default="8871"/>
   
-  <node pkg="z1_controller" type="z1_ctrl" name="z1_ctrl" output="screen">
+  <node pkg="z1_controller" type="z1_ctrl" name="z1_ctrl" output="screen" cwd="node">
     <param name="communication" value="UDP"/>
     <param name="z1_urdf_path" value="$(find z1_description)/xacro/z1.urdf"/>
     <param name="udp/mcu_ip" value="$(arg arm_ip)"/>

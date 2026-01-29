@@ -1,104 +1,102 @@
 #include <csignal>
 #include <sched.h>
 #include "FSM/FiniteStateMachine.h"
-#include "FSM/State_Passive.h"
-#include "FSM/State_BackToStart.h"
-#include "FSM/State_Calibration.h"
-#include "FSM/State_Cartesian.h"
-#include "FSM/State_JointSpace.h"
-#include "FSM/State_MoveJ.h"
-#include "FSM/State_MoveL.h"
-#include "FSM/State_MoveC.h"
-#include "FSM/State_ToState.h"
-#include "FSM/State_SaveState.h"
+#include "FSM/State_Init.h"
+#include "FSM/State_JointCtrl.h"
 #include "FSM/State_Teach.h"
 #include "FSM/State_TeachRepeat.h"
-#include "FSM/State_Trajectory.h"
+#include "FSM/State_Calibration.h"
+#include "FSM/State_Passive.h"
 #include "FSM/State_LowCmd.h"
+#include "FSM/State_ClearError.h"
+#include "IOROS.h"
+#include <ros/package.h>
+#include "pinocchio/parsers/urdf.hpp"
+
+/**
+ * @brief main.cpp
+ */
 
 bool running = true;
 
-//set real-time program
-void setProcessScheduler(){
-    pid_t pid = getpid();
-    sched_param param;
-    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-    if (sched_setscheduler(pid, SCHED_FIFO, &param) == -1) {
-        // std::cout << "[ERROR] Function setProcessScheduler failed." << std::endl;
-    }
-}
-
 int main(int argc, char **argv){
-    /* set real-time process */
-    setProcessScheduler();
-    /* set the print format */
-    std::cout << std::fixed << std::setprecision(5);
+  /* set print format */
+  std::cout << std::fixed << std::setprecision(4);
 
+  ros::init(argc, argv, "unitree_arm_controller");
+  ros::NodeHandle nh("~");
 
-    EmptyAction emptyAction((int)ArmFSMStateName::INVALID);
-    std::vector<KeyAction*> events;
-    CtrlComponents *ctrlComp = new CtrlComponents(argc, argv);
-    
-    ctrlComp->dt = 1.0/250.;
-    ctrlComp->armConfigPath =  "../config/";
-    ctrlComp->stateCSV = new CSVTool("../config/savedArmStates.csv");
-    ctrlComp->ioInter = new IOUDP(ctrlComp->ctrl_IP.c_str(), ctrlComp->ctrl_port);
-    ctrlComp->geneObj();
-    if(ctrlComp->ctrl == Control::SDK){
-        ctrlComp->cmdPanel = new ARMSDK(events, emptyAction, "127.0.0.1", 8072, 8071, 0.002);
-    }else if(ctrlComp->ctrl == Control::KEYBOARD){
-        events.push_back(new StateAction("`", (int)ArmFSMStateName::BACKTOSTART));
-        events.push_back(new StateAction("1", (int)ArmFSMStateName::PASSIVE));
-        events.push_back(new StateAction("2", (int)ArmFSMStateName::JOINTCTRL));
-        events.push_back(new StateAction("3", (int)ArmFSMStateName::CARTESIAN));
-        events.push_back(new StateAction("4", (int)ArmFSMStateName::MOVEJ));
-        events.push_back(new StateAction("5", (int)ArmFSMStateName::MOVEL));
-        events.push_back(new StateAction("6", (int)ArmFSMStateName::MOVEC));
-        events.push_back(new StateAction("7", (int)ArmFSMStateName::TEACH));
-        events.push_back(new StateAction("8", (int)ArmFSMStateName::TEACHREPEAT));
-        events.push_back(new StateAction("9", (int)ArmFSMStateName::SAVESTATE));
-        events.push_back(new StateAction("0", (int)ArmFSMStateName::TOSTATE));
-        events.push_back(new StateAction("-", (int)ArmFSMStateName::TRAJECTORY));
-        events.push_back(new StateAction("=", (int)ArmFSMStateName::CALIBRATION));
+  /* running parameters */
+  // 1. communication
+  std::string mcu_ip; // The real robot address
+  nh.param<std::string>("udp/mcu_ip", mcu_ip, "192.168.123.110");
+  int port_to_mcu;
+  nh.param<int>("udp/port_to_mcu", port_to_mcu, 8881);
+  int port_to_sdk;
+  nh.param<int>("udp/port_to_sdk", port_to_sdk, 8871);
 
-        events.push_back(new ValueAction("q", "a", 0.5));
-        events.push_back(new ValueAction("w", "s", 0.5));
-        events.push_back(new ValueAction("e", "d", 0.5));
-        events.push_back(new ValueAction("r", "f", 0.5));
-        events.push_back(new ValueAction("t", "g", 0.5));
-        events.push_back(new ValueAction("y", "h", 0.5));
-        events.push_back(new ValueAction("down", "up", 1.));
+  // 2. collision
+  bool collisionOpen;
+  nh.param<bool>("collision/open", collisionOpen, true);
+  double collisionLimitT;
+  nh.param<double>("collision/limitT", collisionLimitT, 10.0);
+  collisionLimitT = clamp(collisionLimitT, 5, 30);
+  // 3. control method
+  std::string communication;
+  nh.param<std::string>("communication", communication, "UDP");
+  bool cmdCache;
+  nh.param<bool>("cmdCache", cmdCache, false);
 
-        ctrlComp->cmdPanel = new Keyboard(events, emptyAction);
+  /* set parameters */
+  auto ctrlComp = std::make_shared<CtrlComponents>();
+  ctrlComp->projectPath = ros::package::getPath("z1_controller");
+  pin::Model model;
+  pin::urdf::buildModel(ctrlComp->projectPath+std::string("/config/z1.urdf"), model);
+  ctrlComp->arm = std::make_shared<ArmModel>(model);
+  ctrlComp->cmdSdk = std::make_shared<UdpSdk>(port_to_sdk, ctrlComp->lowState, cmdCache);
+  // Real robot or simulation
+  if(communication.compare("UDP") == 0) {
+    ctrlComp->ioInter = std::make_shared<IOUDP>(mcu_ip.c_str(), port_to_mcu);
+  }else if(communication.compare("ROS") == 0) {
+    ctrlComp->ioInter = std::make_shared<IOROS>();
+  }else{ // default
+    ROS_INFO("[WARNING] Unknown communication. Set to default: UDP. ");
+    ctrlComp->ioInter = std::make_shared<IOUDP>(mcu_ip.c_str(), 0);
+  }
+
+  std::cout << "Wait for connection with Arm." << std::endl;
+  signal(SIGINT, [](int signum){ running = false; printf("Exit z1_controller.\n");} );
+  while (running) {
+    if(ctrlComp->ioInter->init()) {
+      std::cout << "Connected with Arm.\n[STATE] Current arm " 
+                << (ctrlComp->ioInter->hasGripper ? "has " : "doesn't have ")
+                << "Unitree Gripper.\n";
+      break;
     }
-    std::vector<FSMState*> states;
-    states.push_back(new State_Passive(ctrlComp));
-    states.push_back(new State_BackToStart(ctrlComp));
-    states.push_back(new State_JointSpace(ctrlComp));
-    states.push_back(new State_Cartesian(ctrlComp));
-    states.push_back(new State_MoveJ(ctrlComp));
-    states.push_back(new State_MoveL(ctrlComp));
-    states.push_back(new State_MoveC(ctrlComp));
-    states.push_back(new State_LowCmd(ctrlComp));
-    states.push_back(new State_SaveState(ctrlComp));
-    states.push_back(new State_Teach(ctrlComp));
-    states.push_back(new State_TeachRepeat(ctrlComp));
-    states.push_back(new State_ToState(ctrlComp));
-    states.push_back(new State_Trajectory(ctrlComp));
-    states.push_back(new State_Calibration(ctrlComp));
+    usleep(100000);
+  }
 
-    FiniteStateMachine *fsm;
-    fsm = new FiniteStateMachine(states, ctrlComp);
+  if(!ctrlComp->ioInter->initialized()) {
+    return -1;
+  }
 
-    ctrlComp->running = &running;
-    signal(SIGINT, [](int signum){running = false;});
+  std::string csvFilePath = ctrlComp->projectPath + std::string("/config");
+  std::vector<std::shared_ptr<FSMState>> states;
+  states.push_back(std::make_shared<State_Init>(ctrlComp));
+  states.push_back(std::make_shared<State_Passive>(ctrlComp));
+  states.push_back(std::make_shared<State_JointCtrl>(ctrlComp));
+  states.push_back(std::make_shared<State_Teach>(ctrlComp, csvFilePath));
+  states.push_back(std::make_shared<State_TeachRepeat>(ctrlComp, csvFilePath));
+  states.push_back(std::make_shared<State_Calibration>(ctrlComp));
+  states.push_back(std::make_shared<State_LowCmd>(ctrlComp));
+  states.push_back(std::make_shared<State_ClearError>(ctrlComp));
+
+  auto fsm = std::make_shared<FiniteStateMachine>(states, ctrlComp);
+
+  while (running) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    ctrlComp->cmdPanel->start();
-    while(running){
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-
-    delete fsm;
-    delete ctrlComp;
-    return 0;
+  }
+  
+  ros::shutdown();
+  return 0;
 }

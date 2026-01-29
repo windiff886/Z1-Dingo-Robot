@@ -104,7 +104,11 @@ class RobotStatePublisher:
     def _build_base_state(self) -> BaseState:
         """Build base state from odometry."""
         base = BaseState()
-        base.header.stamp = rospy.Time.now()
+        # Use original odometry timestamp, not current time
+        if self._odom:
+            base.header.stamp = self._odom.header.stamp
+        else:
+            base.header.stamp = rospy.Time(0)
         base.enabled = True
         base.moving = False
         base.emergency_stopped = False
@@ -124,7 +128,11 @@ class RobotStatePublisher:
     def _build_arm_state(self, side: str) -> ArmState:
         """Build arm state from joint states."""
         arm = ArmState()
-        arm.header.stamp = rospy.Time.now()
+        # Use original joint states timestamp, not current time
+        if self._joint_states:
+            arm.header.stamp = self._joint_states.header.stamp
+        else:
+            arm.header.stamp = rospy.Time(0)
         arm.side = side
         arm.enabled = True
         arm.moving = False
@@ -175,7 +183,11 @@ class RobotStatePublisher:
     def _build_head_state(self) -> HeadState:
         """Build head state from joint states."""
         head = HeadState()
-        head.header.stamp = rospy.Time.now()
+        # Use original joint states timestamp, not current time
+        if self._joint_states:
+            head.header.stamp = self._joint_states.header.stamp
+        else:
+            head.header.stamp = rospy.Time(0)
         head.enabled = True
         head.moving = False
 

@@ -520,6 +520,9 @@ class ArmAPI:
                     if idx < len(self._current_joint_state.effort):
                         result['efforts'].append(self._current_joint_state.effort[idx])
 
+            # Add original timestamp from joint state message
+            result['timestamp'] = self._current_joint_state.header.stamp.to_sec()
+
             return result
 
     def get_end_effector_pose(self, side: str = None,
