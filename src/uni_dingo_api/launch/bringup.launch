@@ -22,7 +22,7 @@
   <arg name="paused" default="true" doc="Start Gazebo paused" />
 
   <!-- Robot configuration -->
-  <arg name="teleop" default="keyboard" doc="Teleop method: 'keyboard' or 'joystick'" />
+  <arg name="teleop" default="none" doc="Teleop method: 'keyboard', 'joystick', or 'none'" />
   <arg name="moveit" default="true" doc="Enable MoveIt motion planning" />
   <arg name="auto_safe_pose" default="true" doc="Move arms to safe pose on startup" />
 
@@ -59,6 +59,7 @@
       <arg name="paused" value="$(arg paused)" />
       <arg name="world_name" value="$(arg world)" />
       <arg name="teleop" value="$(arg teleop)" />
+      <arg name="joystick" value="$(eval arg('teleop') != 'none')" />
       <arg name="moveit" value="$(arg moveit)" />
       <arg name="rviz" value="$(arg rviz)" />
       <arg name="auto_safe_pose" value="$(arg auto_safe_pose)" />
@@ -69,10 +70,10 @@
     </include>
 
     <!-- Pan-Tilt Controllers (if head enabled) -->
-    <group if="$(arg head)" ns="pan_tilt">
-      <rosparam command="load" file="$(find uni_dingo_api)/config/pan_tilt_controllers.yaml" />
+    <group if="$(arg head)">
+      <rosparam command="load" file="$(find uni_dingo_api)/config/pan_tilt_controllers.yaml" ns="pan_tilt" />
       <node name="pan_tilt_controller_spawner" pkg="controller_manager" type="spawner"
-            args="pan_tilt_joint_state_controller pan_controller tilt_controller"
+            args="pan_tilt/pan_tilt_joint_state_controller pan_tilt/pan_controller pan_tilt/tilt_controller"
             output="screen" respawn="false" />
     </group>
 

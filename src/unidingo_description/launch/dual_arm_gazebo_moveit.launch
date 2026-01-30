@@ -67,7 +67,7 @@
 
   <!-- Publish a safe pose once controllers are available -->
   <node if="$(arg auto_safe_pose)" name="set_dual_arm_safe_pose" pkg="uni_dingo" type="set_dual_arm_safe_pose.py" output="screen">
-    <param name="unpause" value="$(arg paused)" />
+    <param name="unpause" value="$(eval not arg('paused'))" />
     <param name="unpause_after_set_model" value="false" />
     <param name="spawn_model" value="true" />
     <param name="spawn_x" value="$(arg x)" />

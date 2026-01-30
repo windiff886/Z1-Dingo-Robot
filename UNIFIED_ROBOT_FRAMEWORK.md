@@ -382,7 +382,7 @@ robot.left_arm.gripper_close(force=0.5).wait()
 
 ```bash
 # 完整仿真（Gazebo + MoveIt + RViz）
-roslaunch uni_dingo_api bringup.launch mode:=sim gui:=true rviz:=true
+roslaunch uni_dingo_api bringup.launch gui:=true rviz:=true
 
 # 真机启动
 roslaunch uni_dingo_api bringup.launch mode:=real
