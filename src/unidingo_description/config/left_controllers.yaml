@@ -1,6 +1,8 @@
 # 左臂控制器配置
-# Note: joint_state_controller removed to avoid duplicate publishing
-# dingo_joint_publisher handles all joint states
+
+left_joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 200
 
 left_z1_joint_traj_controller:
   type: position_controllers/JointTrajectoryController

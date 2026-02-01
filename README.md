@@ -4,7 +4,7 @@ export DINGO_TELEOP_ENABLE = 0
 export DINGO_OMNI=1
 
 source devel/setup.bash 
-roslaunch dingo_base base.launch teleop:=keyboard 
+  teleop:=keyboard 
 ```
 
 # z1

@@ -10,22 +10,23 @@
   <arg name="moveit" default="false" />
   <arg name="rviz" default="false" />
   
-  <!-- 双臂 IP 配置 (已对调：rviz左臂对应物理右臂) -->
-  <arg name="left_arm_ip" default="192.168.123.111"/>
-  <arg name="right_arm_ip" default="192.168.123.110"/>
+  <!-- 双臂 IP 配置 -->
+  <arg name="left_arm_ip" default="192.168.123.110"/>
+  <arg name="right_arm_ip" default="192.168.123.111"/>
 
-  <!-- 加载双臂 URDF -->
-  <param name="robot_description" command="$(find xacro)/xacro --inorder 
+  <!-- 加载双臂 URDF (禁用云台) -->
+  <param name="robot_description" command="$(find xacro)/xacro --inorder
     '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro'
-    UnitreeGripper:=$(arg UnitreeGripperYN)"/>
+    UnitreeGripper:=$(arg UnitreeGripperYN)
+    PanTilt:=false"/>
 
-  <!-- ========== 左臂控制 (连接物理右臂 .111:8882) ========== -->
+  <!-- ========== 左臂控制 (.110:8881) ========== -->
   <group ns="left_arm">
     <!-- 底层 SDK 控制器 -->
     <include file="$(find z1_bringup)/launch/real_ctrl.launch" if="$(arg controller)">
       <arg name="arm_ip" value="$(arg left_arm_ip)"/>
-      <arg name="port_to_mcu" value="8882"/>
-      <arg name="port_to_sdk" value="8873"/>
+      <arg name="port_to_mcu" value="8881"/>
+      <arg name="port_to_sdk" value="8871"/>
     </include>
 
     <!-- ros_control 硬件接口 -->
@@ -35,10 +36,10 @@
         <param name="UnitreeGripperYN" value="$(arg UnitreeGripperYN)"/>
         <param name="joint_prefix" value="left_"/>
         <param name="udp/mcu_ip" value="$(arg left_arm_ip)"/>
-        <param name="udp/port_to_mcu" value="8882"/>
-        <param name="udp/port_to_sdk" value="8873"/>
+        <param name="udp/port_to_mcu" value="8881"/>
+        <param name="udp/port_to_sdk" value="8871"/>
         <param name="udp_to_controller/controller_ip" value="127.0.0.1"/>
-        <param name="udp_to_controller/own_port" value="8874"/>
+        <param name="udp_to_controller/own_port" value="8872"/>
       </node>
       <node name="controller_spawner" pkg="controller_manager" type="spawner"
         respawn="false" output="screen"
@@ -46,13 +47,13 @@
     </group>
   </group>
 
-  <!-- ========== 右臂控制 (连接物理左臂 .110:8881) ========== -->
+  <!-- ========== 右臂控制 (.111:8882) ========== -->
   <group ns="right_arm">
     <!-- 底层 SDK 控制器 -->
     <include file="$(find z1_bringup)/launch/real_ctrl.launch" if="$(arg controller)">
       <arg name="arm_ip" value="$(arg right_arm_ip)"/>
-      <arg name="port_to_mcu" value="8881"/>
-      <arg name="port_to_sdk" value="8871"/>
+      <arg name="port_to_mcu" value="8882"/>
+      <arg name="port_to_sdk" value="8873"/>
     </include>
 
     <!-- ros_control 硬件接口 -->
@@ -62,10 +63,10 @@
         <param name="UnitreeGripperYN" value="$(arg UnitreeGripperYN)"/>
         <param name="joint_prefix" value="right_"/>
         <param name="udp/mcu_ip" value="$(arg right_arm_ip)"/>
-        <param name="udp/port_to_mcu" value="8881"/>
-        <param name="udp/port_to_sdk" value="8871"/>
+        <param name="udp/port_to_mcu" value="8882"/>
+        <param name="udp/port_to_sdk" value="8873"/>
         <param name="udp_to_controller/controller_ip" value="127.0.0.1"/>
-        <param name="udp_to_controller/own_port" value="8872"/>
+        <param name="udp_to_controller/own_port" value="8874"/>
       </node>
       <node name="controller_spawner" pkg="controller_manager" type="spawner"
         respawn="false" output="screen"

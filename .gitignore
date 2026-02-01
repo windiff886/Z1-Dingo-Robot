@@ -44,3 +44,4 @@
 .catkin_workspace
 build/
 devel/
+logs/

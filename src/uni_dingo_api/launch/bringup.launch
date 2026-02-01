@@ -7,7 +7,7 @@
       roslaunch uni_dingo_api bringup.launch                    # Simulation with GUI
       roslaunch uni_dingo_api bringup.launch mode:=real         # Real robot
       roslaunch uni_dingo_api bringup.launch gui:=false         # Headless simulation
-      roslaunch uni_dingo_api bringup.launch rviz:=false        # No RViz
+      roslaunch uni_dingo_api bringup.launch rviz:=true         # With RViz
       roslaunch uni_dingo_api bringup.launch head:=true         # Enable head
       roslaunch uni_dingo_api bringup.launch perception:=true   # Enable perception
   -->
@@ -17,7 +17,7 @@
 
   <!-- Simulation settings -->
   <arg name="gui" default="true" doc="Launch Gazebo GUI" />
-  <arg name="rviz" default="true" doc="Launch RViz" />
+  <arg name="rviz" default="false" doc="Launch RViz" />
   <arg name="world" default="$(find dingo_gazebo)/worlds/dingo_race.world" />
   <arg name="paused" default="true" doc="Start Gazebo paused" />
 

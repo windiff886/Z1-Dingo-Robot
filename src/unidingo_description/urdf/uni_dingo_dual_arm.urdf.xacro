@@ -17,11 +17,11 @@
   <xacro:property name="pan_tilt_support_length" value="${pan_tilt_mount_z - arm_support_clearance}"/>
   <xacro:property name="arm_support_clearance" value="0.10"/>
   <xacro:property name="left_arm_mount_x" value="0.15091"/>
-  <xacro:property name="left_arm_mount_y" value="-0.11708"/>
+  <xacro:property name="left_arm_mount_y" value="0.11708"/>
   <xacro:property name="left_arm_mount_z" value="0.57228"/>
   <xacro:property name="left_arm_support_length" value="${left_arm_mount_z - arm_support_clearance}"/>
   <xacro:property name="right_arm_mount_x" value="0.15091"/>
-  <xacro:property name="right_arm_mount_y" value="0.11708"/>
+  <xacro:property name="right_arm_mount_y" value="-0.11708"/>
   <xacro:property name="right_arm_mount_z" value="0.57228"/>
   <xacro:property name="right_arm_support_length" value="${right_arm_mount_z - arm_support_clearance}"/>
 
