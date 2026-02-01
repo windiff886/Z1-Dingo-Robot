@@ -1,6 +1,6 @@
 dingo_joint_publisher:
   type: "joint_state_controller/JointStateController"
-  publish_rate: 50
+  publish_rate: 200
 
 dingo_velocity_controller:
   type: "mecanum_drive_controller/MecanumDriveController"

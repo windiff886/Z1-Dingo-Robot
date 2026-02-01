@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 
-<robot name="aliengoZ1_description" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<robot name="aliengo_z1_description" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:include filename="$(find aliengoZ1_description)/xacro/gazebo.xacro"/>
-    <xacro:include filename="$(find aliengoZ1_description)/xacro/const.xacro"/>
+    <xacro:include filename="$(find aliengo_z1_description)/xacro/gazebo.xacro"/>
+    <xacro:include filename="$(find aliengo_z1_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find aliengo_description)/xacro/leg.xacro"/>
     <xacro:include filename="$(find aliengo_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find aliengo_description)/xacro/materials.xacro"/>

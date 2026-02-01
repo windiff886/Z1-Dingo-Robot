@@ -1,8 +1,6 @@
 # 右臂控制器配置
-
-right_joint_state_controller:
-  type: joint_state_controller/JointStateController
-  publish_rate: 200
+# Note: joint_state_controller removed to avoid duplicate publishing
+# dingo_joint_publisher handles all joint states
 
 right_z1_joint_traj_controller:
   type: position_controllers/JointTrajectoryController
@@ -17,16 +15,16 @@ right_z1_joint_traj_controller:
   state_publish_rate: 200
   action_monitor_rate: 200
   constraints:
-    goal_time: 0.5
+    goal_time: 2.0
     right_joint1:
-      goal: 0.01
+      goal: 0.05
     right_joint2:
-      goal: 0.01
+      goal: 0.05
     right_joint3:
-      goal: 0.01
+      goal: 0.05
     right_joint4:
-      goal: 0.01
+      goal: 0.05
     right_joint5:
-      goal: 0.01
+      goal: 0.05
     right_joint6:
-      goal: 0.01
+      goal: 0.05

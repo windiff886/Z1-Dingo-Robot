@@ -7,7 +7,7 @@ Pose Visualizer - 在 RViz 中可视化机械臂预设位姿
     roslaunch whole_body_example pose_visualizer.launch
 
     然后在终端中输入位姿名称:
-    - home, ready, tucked, stow
+    - home
     - 或输入关节角度
 """
 
@@ -20,18 +20,6 @@ NAMED_POSES = {
     'home': {
         'left': [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0],
         'right': [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
-    },
-    'ready': {
-        'left': [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0],
-        'right': [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0]
-    },
-    'tucked': {
-        'left': [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0],
-        'right': [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
-    },
-    'stow': {
-        'left': [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0],
-        'right': [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0]
     }
 }
 
@@ -141,12 +129,11 @@ class PoseVisualizer:
         print("\n" + "="*50)
         print("  机械臂位姿可视化工具")
         print("="*50)
-        print("\n可用位姿: home, ready, tucked, stow")
+        print("\n可用位姿: home")
         print("\n命令:")
-        print("  <pose>            - 切换位姿 (home/ready/tucked/stow)")
+        print("  home              - 切换到 home 位姿")
         print("  head <pan> <tilt> - 设置云台角度(弧度)")
         print("  grip <open/close> - 控制夹爪")
-        print("  compare           - 循环显示所有位姿")
         print("  q                 - 退出")
         print("="*50 + "\n")
 
@@ -195,19 +182,11 @@ class PoseVisualizer:
                     self.set_gripper('right', pos)
                     print(f"夹爪: {action}")
 
-                elif cmd == 'compare':
-                    print("\n循环显示所有位姿 (每个 2 秒)...")
-                    for pose_name in ['home', 'ready', 'tucked', 'stow']:
-                        self.set_pose(pose_name)
-                        rospy.sleep(2.0)
-                    print("循环完成\n")
-
                 elif cmd == 'help':
                     print("\n可用命令:")
-                    print("  home/ready/tucked/stow - 切换位姿")
+                    print("  home - 切换到 home 位姿")
                     print("  head <pan> <tilt> - 设置云台(弧度)")
                     print("  grip open/close - 控制夹爪")
-                    print("  compare - 循环显示")
                     print("  q - 退出\n")
 
                 else:

@@ -90,15 +90,11 @@
     <rosparam param="left_positions">[0, 0, 0, -0.07435, 0, 0]</rosparam>
     <rosparam param="right_positions">[0, 0, 0, -0.07435, 0, 0]</rosparam>
     <rosparam param="controllers_to_load">
-      - left_arm/left_joint_state_controller
       - left_arm/left_z1_joint_traj_controller
-      - right_arm/right_joint_state_controller
       - right_arm/right_z1_joint_traj_controller
     </rosparam>
     <rosparam param="start_controllers">
-      - left_arm/left_joint_state_controller
       - left_arm/left_z1_joint_traj_controller
-      - right_arm/right_joint_state_controller
       - right_arm/right_z1_joint_traj_controller
     </rosparam>
   </node>
@@ -109,6 +105,7 @@
     <arg name="fake_execution" value="false"/>
   </include>
 
+  <!-- RViz -->
   <include file="$(find z1_dual_moveit_config)/launch/moveit_rviz.launch" if="$(arg rviz)">
     <arg name="rviz_config" value="$(find z1_dual_moveit_config)/launch/moveit.rviz"/>
   </include>

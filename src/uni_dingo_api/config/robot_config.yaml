@@ -82,19 +82,10 @@ named_poses:
   home:
     left: [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
     right: [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
-  ready:
-    left: [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0]
-    right: [0.0, 0.5, -0.5, -0.07435, 0.0, 0.0]
-  tucked:
-    left: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
-    right: [0.0, 1.5, -1.5, -0.07435, 0.0, 0.0]
-  stow:
-    left: [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0]
-    right: [0.0, 1.1, -1.1, 1.5707, 0.0, 0.0]
 
 # Motion parameters
 motion:
-  default_velocity_scaling: 0.3
-  default_acceleration_scaling: 0.3
+  default_velocity_scaling: 0.1
+  default_acceleration_scaling: 0.1
   planning_time: 5.0
   num_planning_attempts: 10

@@ -63,7 +63,7 @@
     <child link="leftarm_link"/>
   </joint>
 
-  <!-- ========== 左臂支撑柱（仅视觉） ========== -->
+  <!-- ========== 左臂支撑柱 ========== -->
   <link name="leftarm_support_link">
     <visual>
       <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
@@ -72,6 +72,12 @@
       </geometry>
       <material name="arm_support_grey"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="${left_arm_support_length}" radius="${arm_support_radius}"/>
+      </geometry>
+    </collision>
   </link>
 
   <joint name="base_leftarm_support_joint" type="fixed">
@@ -96,7 +102,7 @@
     <child link="rightarm_link"/>
   </joint>
 
-  <!-- ========== 右臂支撑柱（仅视觉） ========== -->
+  <!-- ========== 右臂支撑柱 ========== -->
   <link name="rightarm_support_link">
     <visual>
       <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
@@ -105,6 +111,12 @@
       </geometry>
       <material name="arm_support_grey"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="${right_arm_support_length}" radius="${arm_support_radius}"/>
+      </geometry>
+    </collision>
   </link>
 
   <joint name="base_rightarm_support_joint" type="fixed">
@@ -126,7 +138,7 @@
   <!-- ========== Pan-Tilt 云台 ========== -->
   <xacro:if value="$(arg PanTilt)">
 
-    <!-- 云台支撑柱（仅视觉） -->
+    <!-- 云台支撑柱 -->
     <link name="pan_tilt_support_link">
       <visual>
         <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
@@ -135,6 +147,12 @@
         </geometry>
         <material name="arm_support_grey"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${pan_tilt_support_length}" radius="${arm_support_radius}"/>
+        </geometry>
+      </collision>
     </link>
 
     <joint name="base_pan_tilt_support_joint" type="fixed">
@@ -148,7 +166,7 @@
       <origin xyz="${pan_tilt_mount_x} ${pan_tilt_mount_y} ${pan_tilt_mount_z}" rpy="0 0 0"/>
     </xacro:pan_tilt>
 
-    <!-- 相机支撑柱（仅视觉） -->
+    <!-- 相机支撑柱 -->
     <xacro:property name="camera_mount_z" value="0.1"/>
     <link name="camera_support_link">
       <visual>
@@ -158,6 +176,12 @@
         </geometry>
         <material name="arm_support_grey"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 ${camera_mount_z/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${camera_mount_z}" radius="${arm_support_radius}"/>
+        </geometry>
+      </collision>
     </link>
 
     <joint name="pan_tilt_camera_support_joint" type="fixed">

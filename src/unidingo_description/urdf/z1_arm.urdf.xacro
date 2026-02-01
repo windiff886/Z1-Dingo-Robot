@@ -77,6 +77,12 @@
           <mesh filename="package://z1_description/meshes/visual/z1_Link01.dae" scale="1 1 1"/>
         </geometry>
       </visual>
+      <collision>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <mesh filename="package://z1_description/meshes/collision/z1_Link01.STL" scale="1 1 1"/>
+        </geometry>
+      </collision>
       <inertial>
         <origin rpy="0 0 0" xyz="${L01_ComX} ${L01_ComY} ${L01_ComZ}"/>
         <mass value="${L01_Mass}"/>
@@ -217,6 +223,12 @@
           <mesh filename="package://z1_description/meshes/visual/z1_Link05.dae" scale="1 1 1"/>
         </geometry>
       </visual>
+      <collision>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <mesh filename="package://z1_description/meshes/collision/z1_Link05.STL" scale="1 1 1"/>
+        </geometry>
+      </collision>
       <inertial>
         <origin rpy="0 0 0" xyz="${L05_ComX} ${L05_ComY} ${L05_ComZ}"/>
         <mass value="${L05_Mass}"/>

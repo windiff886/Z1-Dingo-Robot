@@ -3,7 +3,7 @@
     <arg name="user_debug" default="true"/>
     <arg name="UnitreeGripperYN" default="true"/>
 
-    <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find aliengoZ1_description)/xacro/robot.xacro'
+    <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find aliengo_z1_description)/xacro/robot.xacro'
             DEBUG:=$(arg user_debug) UnitreeGripper:=$(arg UnitreeGripperYN)"/>
 
     <!-- send fake joint values -->

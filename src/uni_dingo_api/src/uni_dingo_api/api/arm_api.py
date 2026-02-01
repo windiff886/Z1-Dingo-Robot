@@ -13,8 +13,29 @@ from control_msgs.msg import GripperCommandAction, GripperCommandGoal
 from typing import Optional, List, Dict, Literal
 import threading
 import actionlib
+import os
+from datetime import datetime
 
 from .action_future import ActionFuture
+
+# Debug log file path (relative to project root)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, '..', '..', '..', '..', '..'))
+ARM_DEBUG_LOG_FILE = os.path.join(_PROJECT_ROOT, 'logs', 'arm_debug.log')
+
+
+def _write_debug_log(message: str):
+    """Write debug message to log file with timestamp."""
+    try:
+        log_dir = os.path.dirname(ARM_DEBUG_LOG_FILE)
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with open(ARM_DEBUG_LOG_FILE, 'a') as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception as e:
+        rospy.logwarn(f"Failed to write debug log: {e}")
 
 
 class ArmAPI:
@@ -143,11 +164,15 @@ class ArmAPI:
                 self._move_groups = {self._side: self._move_group}
 
             # Configure move groups
-            for mg in self._move_groups.values():
+            for side_key, mg in self._move_groups.items():
                 mg.set_max_velocity_scaling_factor(self._velocity_scaling)
                 mg.set_max_acceleration_scaling_factor(self._acceleration_scaling)
                 mg.set_planning_time(self._planning_time)
                 mg.set_num_planning_attempts(10)
+                # Set end effector link and reference frame
+                mg.set_end_effector_link(self._ee_links[side_key])
+                mg.set_pose_reference_frame('base_link')
+                rospy.loginfo(f"MoveGroup '{side_key}': ee_link={self._ee_links[side_key]}, ref_frame=base_link")
 
             rospy.loginfo("MoveIt interface initialized")
             return True
@@ -189,28 +214,96 @@ class ArmAPI:
 
         def execute():
             try:
+                _write_debug_log(f"========== move_to_pose [{side}] ==========")
+
+                # Debug: current state
+                current_joints = mg.get_current_joint_values()
+                _write_debug_log(f"[{side}] Current joints: {[f'{j:.4f}' for j in current_joints]}")
+
+                current_pose = mg.get_current_pose()
+                _write_debug_log(f"[{side}] Current EE pose (frame={current_pose.header.frame_id}):")
+                _write_debug_log(f"  position: x={current_pose.pose.position.x:.4f}, y={current_pose.pose.position.y:.4f}, z={current_pose.pose.position.z:.4f}")
+
                 # Create PoseStamped
                 pose_stamped = PoseStamped()
                 pose_stamped.header.frame_id = frame
                 pose_stamped.header.stamp = rospy.Time.now()
                 pose_stamped.pose = pose
 
+                # Debug: target pose
+                _write_debug_log(f"[{side}] Target pose in '{frame}':")
+                _write_debug_log(f"  position: x={pose.position.x:.4f}, y={pose.position.y:.4f}, z={pose.position.z:.4f}")
+                _write_debug_log(f"  orientation: x={pose.orientation.x:.4f}, y={pose.orientation.y:.4f}, z={pose.orientation.z:.4f}, w={pose.orientation.w:.4f}")
+
+                # Debug: move group settings
+                _write_debug_log(f"[{side}] MoveGroup settings:")
+                _write_debug_log(f"  planning_frame: {mg.get_planning_frame()}")
+                _write_debug_log(f"  end_effector_link: {mg.get_end_effector_link()}")
+                _write_debug_log(f"  pose_reference_frame: {mg.get_pose_reference_frame()}")
+
                 mg.set_pose_target(pose_stamped)
 
-                # Plan and execute
-                success = mg.go(wait=True)
+                # Plan first to check if planning succeeds
+                plan = mg.plan()
+                # plan() returns (success, trajectory, planning_time, error_code) in newer MoveIt
+                # or just trajectory in older versions
+                if isinstance(plan, tuple):
+                    plan_success = plan[0]
+                    trajectory = plan[1]
+                else:
+                    trajectory = plan
+                    plan_success = trajectory is not None and len(trajectory.joint_trajectory.points) > 0
+
+                if not plan_success:
+                    _write_debug_log(f"[{side}] Motion planning FAILED - no valid trajectory found")
+                    future._success = False
+                    future._error_msg = "Motion planning failed - no valid IK solution or path"
+                    mg.clear_pose_targets()
+                    return
+
+                # Debug: trajectory info
+                traj = trajectory.joint_trajectory
+                _write_debug_log(f"[{side}] Planning succeeded:")
+                _write_debug_log(f"  waypoints: {len(traj.points)}")
+                _write_debug_log(f"  joints: {traj.joint_names}")
+                if len(traj.points) > 0:
+                    _write_debug_log(f"  start time: {traj.points[0].time_from_start.to_sec():.3f}s")
+                    _write_debug_log(f"  end time: {traj.points[-1].time_from_start.to_sec():.3f}s")
+                    _write_debug_log(f"  start pos: {[f'{p:.4f}' for p in traj.points[0].positions]}")
+                    _write_debug_log(f"  end pos: {[f'{p:.4f}' for p in traj.points[-1].positions]}")
+
+                # Execute the planned trajectory
+                _write_debug_log(f"[{side}] Executing trajectory...")
+                exec_success = mg.execute(trajectory, wait=True)
                 mg.stop()
                 mg.clear_pose_targets()
 
-                future._success = success
-                future._result = {'success': success}
-                if not success:
-                    future._error_msg = "Motion planning or execution failed"
+                # Debug: final state
+                final_joints = mg.get_current_joint_values()
+                _write_debug_log(f"[{side}] Final joints: {[f'{j:.4f}' for j in final_joints]}")
+
+                if exec_success:
+                    _write_debug_log(f"[{side}] Execution succeeded")
+                else:
+                    _write_debug_log(f"[{side}] Execution FAILED (controller error)")
+                    # Calculate error
+                    if len(traj.points) > 0:
+                        target_joints = traj.points[-1].positions
+                        errors = [abs(f - t) for f, t in zip(final_joints, target_joints)]
+                        _write_debug_log(f"[{side}] Joint errors: {[f'{e:.4f}' for e in errors]}")
+                        _write_debug_log(f"[{side}] Max error: {max(errors):.4f} rad ({max(errors)*57.3:.2f} deg)")
+
+                future._success = exec_success
+                future._result = {'success': exec_success}
+                if not exec_success:
+                    future._error_msg = "Trajectory execution failed (controller)"
 
             except Exception as e:
                 future._success = False
                 future._error_msg = str(e)
-                rospy.logerr(f"move_to_pose error: {e}")
+                _write_debug_log(f"move_to_pose error: {e}")
+                import traceback
+                _write_debug_log(traceback.format_exc())
             finally:
                 future._done.set()
 
@@ -322,20 +415,33 @@ class ArmAPI:
         return future
 
     def _move_both_to_named(self, name: str) -> ActionFuture:
-        """Move both arms to a named pose."""
+        """Move both arms to a named pose (parallel execution)."""
         future = ActionFuture()
 
         def execute():
             try:
-                success = True
-                for side_key, mg in self._move_groups.items():
+                results = {}
+                threads = []
+
+                def move_single_arm(side_key, mg):
+                    """Move a single arm and store result."""
                     mg.set_named_target(name)
-                    if not mg.go(wait=True):
-                        success = False
+                    results[side_key] = mg.go(wait=True)
                     mg.stop()
 
+                # Start both arms in parallel
+                for side_key, mg in self._move_groups.items():
+                    t = threading.Thread(target=move_single_arm, args=(side_key, mg))
+                    threads.append(t)
+                    t.start()
+
+                # Wait for both to complete
+                for t in threads:
+                    t.join()
+
+                success = all(results.values())
                 future._success = success
-                future._result = {'success': success}
+                future._result = {'success': success, 'details': results}
 
             except Exception as e:
                 future._success = False
@@ -351,7 +457,7 @@ class ArmAPI:
     def move_both(self, left_pose: Pose, right_pose: Pose,
                   frame: str = 'base_link') -> ActionFuture:
         """
-        Move both arms simultaneously.
+        Move both arms simultaneously (parallel execution).
 
         Args:
             left_pose: Target pose for left arm
@@ -386,18 +492,28 @@ class ArmAPI:
                 self._move_groups['left'].set_pose_target(left_stamped)
                 self._move_groups['right'].set_pose_target(right_stamped)
 
-                # Execute sequentially (for simplicity)
-                # TODO: Implement true simultaneous execution
-                left_success = self._move_groups['left'].go(wait=True)
-                self._move_groups['left'].stop()
+                # Execute in parallel
+                results = {}
 
-                right_success = self._move_groups['right'].go(wait=True)
-                self._move_groups['right'].stop()
+                def execute_arm(side_key):
+                    """Execute motion for a single arm."""
+                    mg = self._move_groups[side_key]
+                    results[side_key] = mg.go(wait=True)
+                    mg.stop()
+                    mg.clear_pose_targets()
 
-                self._move_groups['left'].clear_pose_targets()
-                self._move_groups['right'].clear_pose_targets()
+                threads = []
+                for side_key in ['left', 'right']:
+                    t = threading.Thread(target=execute_arm, args=(side_key,))
+                    threads.append(t)
+                    t.start()
 
-                future._success = left_success and right_success
+                # Wait for both to complete
+                for t in threads:
+                    t.join()
+
+                future._success = results.get('left', False) and results.get('right', False)
+                future._result = {'success': future._success, 'details': results}
 
             except Exception as e:
                 future._success = False
@@ -562,7 +678,7 @@ class ArmAPI:
 
     def get_end_effector_pose(self, side: str = None,
                                frame: str = 'base_link') -> Optional[Pose]:
-        """Get current end effector pose."""
+        """Get current end effector pose in specified frame."""
         if not self._init_moveit():
             return None
 
@@ -578,7 +694,10 @@ class ArmAPI:
             return None
 
         try:
-            return mg.get_current_pose().pose
+            # Set the reference frame for pose queries
+            mg.set_pose_reference_frame(frame)
+            pose_stamped = mg.get_current_pose()
+            return pose_stamped.pose
         except Exception as e:
             rospy.logwarn(f"Failed to get EE pose: {e}")
             return None

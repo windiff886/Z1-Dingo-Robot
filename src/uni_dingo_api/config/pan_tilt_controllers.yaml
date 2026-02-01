@@ -1,10 +1,7 @@
 # Pan-Tilt Controller Configuration for Gazebo
 # ==============================================
-
-# Joint State Controller
-pan_tilt_joint_state_controller:
-  type: joint_state_controller/JointStateController
-  publish_rate: 50
+# Note: joint_state_controller removed to avoid duplicate publishing
+# dingo_joint_publisher handles all joint states
 
 # Pan (Yaw) Position Controller
 pan_controller:

@@ -5,32 +5,31 @@ Keyboard Teleop - 键盘遥控 Uni-Dingo 机器人
 
 按键映射:
     底盘控制:
-        W/S     - 前进/后退
-        A/D     - 左移/右移 (全向底盘)
-        Q/E     - 左转/右转
+        w/s     - 前进/后退 (Shift 加速)
+        a/d     - 左移/右移 (Shift 加速)
+        q/e     - 左转/右转 (Shift 加速)
         空格    - 急停
 
     机械臂控制:
         1       - 双臂 Home 位姿
-        2       - 双臂 Ready 位姿
-        3       - 双臂 Stow 位姿
-        4       - 左臂 Home
-        5       - 右臂 Home
+        2       - 左臂 Home
+        3       - 右臂 Home
 
     末端位姿控制 (选定臂):
-        T/G     - 末端上升/下降
-        F/H     - 末端左移/右移
-        R/Y     - 末端前进/后退
+        t/g     - 末端上升/下降 (Shift 加速)
+        f       - 末端左移 (Shift 加速)
+        h       - 末端右移 (小写，无快速模式)
+        r/y     - 末端前进/后退 (Shift 加速)
         Tab     - 切换控制的机械臂 (左/右)
 
     夹爪控制:
-        O/P     - 左臂夹爪 开/关
+        o/p     - 左臂夹爪 开/关
         [/]     - 右臂夹爪 开/关
 
     云台控制:
-        I/K     - 云台上仰/下俯
-        J/L     - 云台左转/右转
-        H       - 云台归零
+        i/k     - 云台上仰/下俯 (Shift 加速)
+        j/l     - 云台左转/右转 (Shift 加速)
+        H       - 云台归零 (大写)
 
     系统:
         ESC/Ctrl+C  - 退出
@@ -83,7 +82,7 @@ EE_POSE_BINDINGS = {
     't': (0, 0, 0.02),      # 上升
     'g': (0, 0, -0.02),     # 下降
     'f': (0, 0.02, 0),      # 左移
-    'h': (0, -0.02, 0),     # 右移  (注意: 'h' 也用于云台归零，小写h用于末端，大写H用于云台)
+    'h': (0, -0.02, 0),     # 右移 (注意: 大写 H 用于云台归零，故无快速右移)
     'r': (0.02, 0, 0),      # 前进
     'y': (-0.02, 0, 0),     # 后退
     'T': (0, 0, 0.05),      # 快速上升
@@ -100,32 +99,31 @@ HELP_MSG = """
 ============================================
 
 底盘控制:
-    W/S     前进/后退      (Shift 加速)
-    A/D     左移/右移
-    Q/E     左转/右转
+    w/s     前进/后退      (Shift 加速)
+    a/d     左移/右移      (Shift 加速)
+    q/e     左转/右转      (Shift 加速)
     空格    急停
 
 机械臂控制:
     1       双臂 Home
-    2       双臂 Ready
-    3       双臂 Stow
-    4       左臂 Home
-    5       右臂 Home
+    2       左臂 Home
+    3       右臂 Home
 
 末端位姿控制 (当前选中臂):
-    T/G     末端上升/下降  (Shift 加速)
-    F/H     末端左移/右移
-    R/Y     末端前进/后退
+    t/g     末端上升/下降  (Shift 加速)
+    f       末端左移       (Shift 加速)
+    h       末端右移       (小写，无快速模式)
+    r/y     末端前进/后退  (Shift 加速)
     Tab     切换控制左/右臂
 
 夹爪控制:
-    O/P     左臂夹爪 开/关
+    o/p     左臂夹爪 开/关
     [/]     右臂夹爪 开/关
 
 云台控制:
-    I/K     上仰/下俯      (Shift 加速)
-    J/L     左转/右转
-    H       云台归零 (大写)
+    i/k     上仰/下俯      (Shift 加速)
+    j/l     左转/右转      (Shift 加速)
+    H       云台归零       (大写)
 
 系统:
     ESC     退出
@@ -327,16 +325,10 @@ class KeyboardTeleop:
                 key = self._get_key()
 
                 if key == '':
-                    # 无输入，速度衰减
-                    self.vx *= 0.5
-                    self.vy *= 0.5
-                    self.vth *= 0.5
-                    if abs(self.vx) < 0.01:
-                        self.vx = 0
-                    if abs(self.vy) < 0.01:
-                        self.vy = 0
-                    if abs(self.vth) < 0.01:
-                        self.vth = 0
+                    # 无输入,速度为0
+                    self.vx = 0
+                    self.vy = 0
+                    self.vth = 0
 
                 elif key == '\x1b':  # ESC
                     rospy.loginfo("退出...")
@@ -379,16 +371,10 @@ class KeyboardTeleop:
                 elif key == '1':  # 双臂 Home
                     self._move_arm(self.robot.arms, 'home')
 
-                elif key == '2':  # 双臂 Ready
-                    self._move_arm(self.robot.arms, 'ready')
-
-                elif key == '3':  # 双臂 Stow
-                    self._move_arm(self.robot.arms, 'stow')
-
-                elif key == '4':  # 左臂 Home
+                elif key == '2':  # 左臂 Home
                     self._move_arm(self.robot.left_arm, 'home')
 
-                elif key == '5':  # 右臂 Home
+                elif key == '3':  # 右臂 Home
                     self._move_arm(self.robot.right_arm, 'home')
 
                 elif key == 'o':  # 左臂夹爪开
