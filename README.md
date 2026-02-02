@@ -1,85 +1,82 @@
-# dingo
-```bash
-export DINGO_TELEOP_ENABLE = 0
-export DINGO_OMNI=1
+# Z1-Dingo-Robot
 
-source devel/setup.bash 
-  teleop:=keyboard 
-```
+Dingo 移动底盘 + 双 Unitree Z1 机械臂 + Pan-Tilt 云台 + Intel D455 相机的 ROS 集成工作区。
 
-# z1
-```bash
-# 终端1: 启动机械臂和 MoveIt
-roslaunch z1_bringup real_arm.launch rviz:=true moveit:=true
-roslaunch z1_bringup real_arm.launch rviz:=false moveit:=true
-```
+## 快速启动
+
+### 仿真模式
 
 ```bash
-# left_link06 to base_link
-At time 1768908322.527
-- Translation: [0.117, -0.138, 0.743]
-- Rotation: in Quaternion [-0.019, -0.033, -0.705, 0.709]
-            in RPY (radian) [0.019, -0.074, -1.566]
-            in RPY (degree) [1.117, -4.227, -89.720]
-```
-
-```bash
-# right_link06 to base_link
-At time 1768908448.872
-- Translation: [-0.118, -0.138, 0.744]
-- Rotation: in Quaternion [-0.030, -0.022, -0.710, 0.704]
-            in RPY (radian) [-0.010, -0.073, -1.579]
-            in RPY (degree) [-0.578, -4.190, -90.481]
-```
-
-```bash
-# 终端2: 启动 z1_control_node
 source devel/setup.bash
-roslaunch z1_control z1_control.launch
+roslaunch uni_dingo_api bringup.launch mode:=simulation gui:=true rviz:=true
 ```
 
+### 真机模式
+
 ```bash
-# 发送目标位姿
-rostopic pub /z1_dual_control_node/left_arm/target_pose geometry_msgs/Pose "
-position:
-  x: 0.117
-  y: -0.138
-  z: 0.900
-orientation:
-  x: -0.019
-  y: -0.033
-  z: -0.705
-  w: 0.709" --once
+source devel/setup.bash
+roslaunch uni_dingo_api bringup.launch mode:=real
 ```
 
+### 键盘遥控示例
+
 ```bash
-# 发送目标位姿
-rostopic pub /z1_dual_control_node/right_arm/target_pose geometry_msgs/Pose "
-position:
-  x: -0.118
-  y: -0.138
-  z: 0.900
-orientation:
-  x: -0.030
-  y: -0.022
-  z: -0.710
-  w: 0.704" --once
+# 仿真
+roslaunch whole_body_example keyboard_teleop.launch mode:=simulation
+# 真机
+roslaunch whole_body_example keyboard_teleop.launch mode:=real
 ```
 
-```bash
-# 打开夹爪 (位置 -1.57 rad = -90度 = 全开)
-rostopic pub /z1_dual_control_node/left_arm/gripper_command std_msgs/Float64 "data: -1.57" --once
+## 独立组件启动
 
-# 关闭夹爪 (位置 0.0 rad = 全关)
-rostopic pub /z1_dual_control_node/right_arm/gripper_command std_msgs/Float64 "data: 0.0" --once
+### 底盘（Dingo）
+
+```bash
+# 真机
+export DINGO_OMNI=1
+roslaunch dingo_base base.launch
+
+# 仿真
+roslaunch dingo_gazebo dingo_world.launch
 ```
 
-```bash
-# 可视化坐标系
-roslaunch z1_description z1_rviz.launch
-```
+### 机械臂（Z1）
 
 ```bash
-# 仿真整机
-roslaunch uni_dingo dual_arm_gazebo_moveit.launch
+# 真机（带 MoveIt）
+roslaunch z1_bringup real_arm.launch rviz:=true moveit:=true
+
+# 仿真
+roslaunch z1_bringup sim_ctrl.launch
+```
+
+### 云台（Pan-Tilt）
+
+```bash
+roslaunch pan_tilt_bringup panTilt_bringup.launch
+```
+
+### 相机（D455）
+
+```bash
+roslaunch d455_camera d455_camera_nodelet.launch
+```
+
+## 文档
+
+- [项目架构](docs/architecture.md)
+- [API Framework](docs/api_framework.md)
+
+## 目录结构
+
+```
+src/
+├── d455_camera/          # Intel D455 相机驱动
+├── pan_tilt_ros/         # 云台控制
+├── z1_ros/               # Unitree Z1 机械臂
+├── dingo/                # Dingo 底盘
+├── uni_dingo_api/        # 统一 API
+├── uni_dingo_msgs/       # 消息定义
+├── whole_body_example/   # 整机示例
+└── unidingo_description/ # 组合 URDF
 ```
