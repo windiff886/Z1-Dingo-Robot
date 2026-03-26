@@ -5,7 +5,9 @@
 
   Include this file in your robot URDF to add:
   - RGB-D Camera (simulating Intel RealSense D455)
-  - Pan-Tilt head controllers
+
+  Note: Pan-Tilt transmissions and controllers are defined in
+  pan_tilt_description/urdf/pan_tilt.urdf.xacro, not here.
 
   Usage:
     <xacro:include filename="$(find uni_dingo_api)/urdf/sensors.gazebo.xacro"/>
@@ -113,37 +115,6 @@
       </sensor>
     </gazebo>
 
-    <!-- ==================== Pan-Tilt Controllers ==================== -->
-    <!-- Pan (Yaw) Controller -->
-    <transmission name="pan_tilt_yaw_trans">
-      <type>transmission_interface/SimpleTransmission</type>
-      <joint name="pan_tilt_yaw_joint">
-        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
-      </joint>
-      <actuator name="pan_tilt_yaw_motor">
-        <mechanicalReduction>1</mechanicalReduction>
-      </actuator>
-    </transmission>
-
-    <!-- Tilt (Pitch) Controller -->
-    <transmission name="pan_tilt_pitch_trans">
-      <type>transmission_interface/SimpleTransmission</type>
-      <joint name="pan_tilt_pitch_joint">
-        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
-      </joint>
-      <actuator name="pan_tilt_pitch_motor">
-        <mechanicalReduction>1</mechanicalReduction>
-      </actuator>
-    </transmission>
-
-    <!-- Gazebo ros_control plugin for pan-tilt -->
-    <gazebo>
-      <plugin name="pan_tilt_gazebo_ros_control" filename="libgazebo_ros_control.so">
-        <robotNamespace>/pan_tilt</robotNamespace>
-        <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
-      </plugin>
-    </gazebo>
-
-  </xacro:macro>
+</xacro:macro>
 
 </robot>
