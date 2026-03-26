@@ -1,5 +1,6 @@
-.catkin_workspace
 build/
-devel/
-logs/
+install/
+log/
 **/__pycache__/
+*.pyc
+.colcon_ignore
