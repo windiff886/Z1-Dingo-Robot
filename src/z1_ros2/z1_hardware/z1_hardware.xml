@@ -1,0 +1,7 @@
+<library path="z1_hardware">
+  <class name="z1_hardware/Z1System"
+         type="z1_hardware::Z1System"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>ros2_control hardware interface for Unitree Z1 arm via z1_sdk UDP</description>
+  </class>
+</library>

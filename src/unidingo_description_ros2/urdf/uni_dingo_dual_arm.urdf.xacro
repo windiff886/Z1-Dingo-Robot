@@ -1,0 +1,245 @@
+<?xml version="1.0"?>
+<!--
+  Uni-Dingo dual-arm robot description (ROS2)
+  Components: Dingo base + left Z1 arm + right Z1 arm + pan-tilt head + D455 camera
+-->
+<robot name="uni_dingo_dual_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- Arguments -->
+    <xacro:arg name="has_gripper" default="true"/>
+    <xacro:arg name="pan_tilt" default="true"/>
+    <xacro:arg name="left_controller_ip" default="127.0.0.1"/>
+    <xacro:arg name="left_sdk_port" default="0"/>
+    <xacro:arg name="left_controller_port" default="8871"/>
+    <xacro:arg name="right_controller_ip" default="127.0.0.1"/>
+    <xacro:arg name="right_sdk_port" default="0"/>
+    <xacro:arg name="right_controller_port" default="8872"/>
+
+    <!-- Include component descriptions -->
+    <xacro:include filename="$(find unidingo_description)/urdf/dingo_base.xacro"/>
+    <xacro:include filename="$(find z1_description)/urdf/z1.urdf.xacro"/>
+    <xacro:include filename="$(find z1_description)/urdf/z1.ros2_control.xacro"/>
+    <xacro:include filename="$(find pan_tilt_description)/urdf/pan_tilt.urdf.xacro"/>
+
+    <!-- Mounting parameters -->
+    <xacro:property name="arm_support_radius" value="0.02"/>
+    <xacro:property name="arm_support_clearance" value="0.10"/>
+
+    <xacro:property name="left_arm_mount_x" value="0.15091"/>
+    <xacro:property name="left_arm_mount_y" value="0.11708"/>
+    <xacro:property name="left_arm_mount_z" value="0.57228"/>
+    <xacro:property name="left_arm_support_length" value="${left_arm_mount_z - arm_support_clearance}"/>
+
+    <xacro:property name="right_arm_mount_x" value="0.15091"/>
+    <xacro:property name="right_arm_mount_y" value="-0.11708"/>
+    <xacro:property name="right_arm_mount_z" value="0.57228"/>
+    <xacro:property name="right_arm_support_length" value="${right_arm_mount_z - arm_support_clearance}"/>
+
+    <xacro:property name="pan_tilt_mount_x" value="0.15091"/>
+    <xacro:property name="pan_tilt_mount_y" value="0"/>
+    <xacro:property name="pan_tilt_mount_z" value="1.0"/>
+    <xacro:property name="pan_tilt_support_length" value="${pan_tilt_mount_z - arm_support_clearance}"/>
+
+    <xacro:property name="arm_support_mass" value="1.4"/>
+    <xacro:property name="pan_tilt_support_mass" value="2.7"/>
+
+    <material name="arm_support_grey">
+        <color rgba="0.3 0.3 0.3 1.0"/>
+    </material>
+
+    <!-- ========== Dingo Base ========== -->
+    <xacro:dingo_base/>
+
+    <!-- ========== Left Arm Support Pillar ========== -->
+    <link name="leftarm_link">
+        <inertial>
+            <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
+            <mass value="${arm_support_mass}"/>
+            <inertia ixx="${arm_support_mass*(3*arm_support_radius*arm_support_radius + left_arm_support_length*left_arm_support_length)/12.0}"
+                     ixy="0" ixz="0"
+                     iyy="${arm_support_mass*(3*arm_support_radius*arm_support_radius + left_arm_support_length*left_arm_support_length)/12.0}"
+                     iyz="0"
+                     izz="${arm_support_mass*arm_support_radius*arm_support_radius/2.0}"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder length="${left_arm_support_length}" radius="${arm_support_radius}"/>
+            </geometry>
+            <material name="arm_support_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder length="${left_arm_support_length}" radius="${arm_support_radius}"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="base_leftarm_joint" type="fixed">
+        <origin xyz="${left_arm_mount_x} ${left_arm_mount_y} ${left_arm_mount_z}" rpy="0 0 0"/>
+        <parent link="base_link"/>
+        <child link="leftarm_link"/>
+    </joint>
+
+    <!-- ========== Right Arm Support Pillar ========== -->
+    <link name="rightarm_link">
+        <inertial>
+            <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
+            <mass value="${arm_support_mass}"/>
+            <inertia ixx="${arm_support_mass*(3*arm_support_radius*arm_support_radius + right_arm_support_length*right_arm_support_length)/12.0}"
+                     ixy="0" ixz="0"
+                     iyy="${arm_support_mass*(3*arm_support_radius*arm_support_radius + right_arm_support_length*right_arm_support_length)/12.0}"
+                     iyz="0"
+                     izz="${arm_support_mass*arm_support_radius*arm_support_radius/2.0}"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder length="${right_arm_support_length}" radius="${arm_support_radius}"/>
+            </geometry>
+            <material name="arm_support_grey"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
+            <geometry>
+                <cylinder length="${right_arm_support_length}" radius="${arm_support_radius}"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="base_rightarm_joint" type="fixed">
+        <origin xyz="${right_arm_mount_x} ${right_arm_mount_y} ${right_arm_mount_z}" rpy="0 0 0"/>
+        <parent link="base_link"/>
+        <child link="rightarm_link"/>
+    </joint>
+
+    <!-- ========== Left Z1 Arm ========== -->
+    <xacro:z1_arm prefix="left_" parent="leftarm_link" xyz="0 0 0" rpy="0 0 0"
+                  has_gripper="$(arg has_gripper)"/>
+
+    <xacro:z1_ros2_control prefix="left_"
+                           controller_ip="$(arg left_controller_ip)"
+                           sdk_port="$(arg left_sdk_port)"
+                           controller_port="$(arg left_controller_port)"
+                           has_gripper="$(arg has_gripper)"/>
+
+    <!-- ========== Right Z1 Arm ========== -->
+    <xacro:z1_arm prefix="right_" parent="rightarm_link" xyz="0 0 0" rpy="0 0 0"
+                  has_gripper="$(arg has_gripper)"/>
+
+    <xacro:z1_ros2_control prefix="right_"
+                           controller_ip="$(arg right_controller_ip)"
+                           sdk_port="$(arg right_sdk_port)"
+                           controller_port="$(arg right_controller_port)"
+                           has_gripper="$(arg has_gripper)"/>
+
+    <!-- ========== Pan-Tilt Head ========== -->
+    <xacro:if value="$(arg pan_tilt)">
+
+        <link name="pan_tilt_mount_link">
+            <inertial>
+                <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
+                <mass value="${pan_tilt_support_mass}"/>
+                <inertia ixx="${pan_tilt_support_mass*(3*arm_support_radius*arm_support_radius + pan_tilt_support_length*pan_tilt_support_length)/12.0}"
+                         ixy="0" ixz="0"
+                         iyy="${pan_tilt_support_mass*(3*arm_support_radius*arm_support_radius + pan_tilt_support_length*pan_tilt_support_length)/12.0}"
+                         iyz="0"
+                         izz="${pan_tilt_support_mass*arm_support_radius*arm_support_radius/2.0}"/>
+            </inertial>
+            <visual>
+                <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
+                <geometry>
+                    <cylinder length="${pan_tilt_support_length}" radius="${arm_support_radius}"/>
+                </geometry>
+                <material name="arm_support_grey"/>
+            </visual>
+            <collision>
+                <origin xyz="0 0 ${-pan_tilt_support_length/2.0}" rpy="0 0 0"/>
+                <geometry>
+                    <cylinder length="${pan_tilt_support_length}" radius="${arm_support_radius}"/>
+                </geometry>
+            </collision>
+        </link>
+
+        <joint name="base_pan_tilt_mount_joint" type="fixed">
+            <origin xyz="${pan_tilt_mount_x} ${pan_tilt_mount_y} ${pan_tilt_mount_z}" rpy="0 0 0"/>
+            <parent link="base_link"/>
+            <child link="pan_tilt_mount_link"/>
+        </joint>
+
+        <!-- Pan-tilt gimbal -->
+        <xacro:pan_tilt parent="pan_tilt_mount_link">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </xacro:pan_tilt>
+
+        <!-- Camera support on top of pan-tilt -->
+        <xacro:property name="camera_mount_z" value="0.1"/>
+        <link name="camera_support_link">
+            <inertial>
+                <origin xyz="0 0 ${camera_mount_z/2.0}" rpy="0 0 0"/>
+                <mass value="0.05"/>
+                <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00001"/>
+            </inertial>
+            <visual>
+                <origin xyz="0 0 ${camera_mount_z/2.0}" rpy="0 0 0"/>
+                <geometry>
+                    <cylinder length="${camera_mount_z}" radius="${arm_support_radius}"/>
+                </geometry>
+                <material name="arm_support_grey"/>
+            </visual>
+            <collision>
+                <origin xyz="0 0 ${camera_mount_z/2.0}" rpy="0 0 0"/>
+                <geometry>
+                    <cylinder length="${camera_mount_z}" radius="${arm_support_radius}"/>
+                </geometry>
+            </collision>
+        </link>
+
+        <joint name="pan_tilt_camera_support_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <parent link="pan_tilt_surface"/>
+            <child link="camera_support_link"/>
+        </joint>
+
+        <!-- D455 camera frame (simplified - actual sensor data comes from realsense node) -->
+        <link name="head_d455_link">
+            <inertial>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <mass value="0.12"/>
+                <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005"/>
+            </inertial>
+            <visual>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="0.124 0.026 0.029"/>
+                </geometry>
+                <material name="d455_grey">
+                    <color rgba="0.2 0.2 0.2 1.0"/>
+                </material>
+            </visual>
+            <collision>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="0.124 0.026 0.029"/>
+                </geometry>
+            </collision>
+        </link>
+
+        <joint name="head_d455_joint" type="fixed">
+            <origin xyz="0 0 ${camera_mount_z}" rpy="0 0 0"/>
+            <parent link="camera_support_link"/>
+            <child link="head_d455_link"/>
+        </joint>
+
+        <!-- Optical frame for the camera (Z-forward, X-right, Y-down convention) -->
+        <link name="head_d455_optical_frame"/>
+        <joint name="head_d455_optical_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+            <parent link="head_d455_link"/>
+            <child link="head_d455_optical_frame"/>
+        </joint>
+
+    </xacro:if>
+
+</robot>

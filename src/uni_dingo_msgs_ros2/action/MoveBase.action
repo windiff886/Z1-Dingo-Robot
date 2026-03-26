@@ -1,0 +1,21 @@
+# MoveBase.action
+# Move the mobile base to a target pose
+
+# Goal
+geometry_msgs/Pose2D target_pose     # Target pose in specified frame
+string frame_id                       # Reference frame (default: "map")
+float64 linear_tolerance              # Position tolerance (m)
+float64 angular_tolerance             # Orientation tolerance (rad)
+
+---
+# Result
+bool success
+string message
+geometry_msgs/Pose2D final_pose
+
+---
+# Feedback
+geometry_msgs/Pose2D current_pose
+float64 distance_remaining
+float64 angle_remaining
+float64 progress                      # 0.0 to 1.0

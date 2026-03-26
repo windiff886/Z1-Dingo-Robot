@@ -1,0 +1,7 @@
+# GetRobotState.srv
+# Get the current robot state
+
+---
+uni_dingo_msgs/RobotState state
+bool success
+string message

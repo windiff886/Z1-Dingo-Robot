@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!--
+      ros2_control hardware interface macro for Z1 arm.
+      @param prefix  Joint name prefix (e.g. "left_" or "right_")
+      @param controller_ip  IP address of z1_controller
+      @param sdk_port  Local UDP port (0 = auto)
+      @param controller_port  Remote UDP port of z1_controller
+      @param has_gripper  Whether this arm has a gripper
+    -->
+    <xacro:macro name="z1_ros2_control" params="prefix:='' controller_ip:='127.0.0.1' sdk_port:=0 controller_port:=8871 has_gripper:=true">
+        <ros2_control name="${prefix}z1_system" type="system">
+            <hardware>
+                <plugin>z1_hardware/Z1System</plugin>
+                <param name="controller_ip">${controller_ip}</param>
+                <param name="sdk_port">${sdk_port}</param>
+                <param name="controller_port">${controller_port}</param>
+                <param name="has_gripper">${has_gripper}</param>
+            </hardware>
+
+            <joint name="${prefix}joint1">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+            <joint name="${prefix}joint2">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+            <joint name="${prefix}joint3">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+            <joint name="${prefix}joint4">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+            <joint name="${prefix}joint5">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+            <joint name="${prefix}joint6">
+                <command_interface name="position"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+
+            <xacro:if value="${has_gripper}">
+                <joint name="${prefix}jointGripper">
+                    <command_interface name="position"/>
+                    <state_interface name="position"/>
+                    <state_interface name="velocity"/>
+                    <state_interface name="effort"/>
+                </joint>
+            </xacro:if>
+        </ros2_control>
+    </xacro:macro>
+
+</robot>

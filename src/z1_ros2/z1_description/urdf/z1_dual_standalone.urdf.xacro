@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  Dual Z1 arm URDF.
+  Instantiates left and right Z1 arms with separate hardware interfaces.
+-->
+<robot name="z1_dual_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:arg name="has_gripper" default="true"/>
+    <xacro:arg name="left_controller_ip" default="127.0.0.1"/>
+    <xacro:arg name="left_sdk_port" default="0"/>
+    <xacro:arg name="left_controller_port" default="8871"/>
+    <xacro:arg name="right_controller_ip" default="127.0.0.1"/>
+    <xacro:arg name="right_sdk_port" default="0"/>
+    <xacro:arg name="right_controller_port" default="8872"/>
+
+    <xacro:include filename="$(find z1_description)/urdf/z1.urdf.xacro"/>
+    <xacro:include filename="$(find z1_description)/urdf/z1.ros2_control.xacro"/>
+
+    <link name="world"/>
+
+    <!-- Left arm -->
+    <xacro:z1_arm prefix="left_" parent="world" xyz="0 0.2 0" rpy="0 0 0"
+                  has_gripper="$(arg has_gripper)"/>
+    <xacro:z1_ros2_control prefix="left_"
+                           controller_ip="$(arg left_controller_ip)"
+                           sdk_port="$(arg left_sdk_port)"
+                           controller_port="$(arg left_controller_port)"
+                           has_gripper="$(arg has_gripper)"/>
+
+    <!-- Right arm -->
+    <xacro:z1_arm prefix="right_" parent="world" xyz="0 -0.2 0" rpy="0 0 0"
+                  has_gripper="$(arg has_gripper)"/>
+    <xacro:z1_ros2_control prefix="right_"
+                           controller_ip="$(arg right_controller_ip)"
+                           sdk_port="$(arg right_sdk_port)"
+                           controller_port="$(arg right_controller_port)"
+                           has_gripper="$(arg has_gripper)"/>
+
+</robot>

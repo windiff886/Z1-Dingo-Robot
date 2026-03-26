@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!--
+  Simplified Dingo base frame.
+  This provides the base_link and base_footprint for the Uni-Dingo robot.
+  In production, replace with official clearpath_common Dingo description.
+  Approximate dimensions: 0.52 x 0.38 x 0.15 m (Dingo-O omni platform)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:macro name="dingo_base">
+        <link name="base_footprint"/>
+
+        <joint name="base_footprint_joint" type="fixed">
+            <origin xyz="0 0 0.065" rpy="0 0 0"/>
+            <parent link="base_footprint"/>
+            <child link="base_link"/>
+        </joint>
+
+        <link name="base_link">
+            <inertial>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <mass value="15.0"/>
+                <inertia ixx="0.23" ixy="0" ixz="0"
+                         iyy="0.36" iyz="0"
+                         izz="0.52"/>
+            </inertial>
+            <visual>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="0.52 0.38 0.15"/>
+                </geometry>
+                <material name="dingo_grey">
+                    <color rgba="0.5 0.5 0.5 1.0"/>
+                </material>
+            </visual>
+            <collision>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <geometry>
+                    <box size="0.52 0.38 0.15"/>
+                </geometry>
+            </collision>
+        </link>
+
+        <!-- IMU frame (for sensor integration) -->
+        <link name="imu_link"/>
+        <joint name="imu_joint" type="fixed">
+            <origin xyz="0 0 0.075" rpy="0 0 0"/>
+            <parent link="base_link"/>
+            <child link="imu_link"/>
+        </joint>
+    </xacro:macro>
+
+</robot>

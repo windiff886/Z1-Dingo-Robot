@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>z1_hardware</name>
+  <version>2.0.0</version>
+  <description>ros2_control hardware interface for Unitree Z1 arm</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

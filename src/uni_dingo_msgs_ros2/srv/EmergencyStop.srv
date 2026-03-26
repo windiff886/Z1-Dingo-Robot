@@ -1,0 +1,7 @@
+# EmergencyStop.srv
+# Emergency stop the robot
+
+bool activate         # true to activate e-stop, false to release
+---
+bool success
+string message
