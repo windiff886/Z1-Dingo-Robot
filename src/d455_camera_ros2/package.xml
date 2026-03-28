@@ -1,15 +1,21 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>d455_camera_bringup</name>
+  <name>d455_camera</name>
   <version>2.0.0</version>
-  <description>Launch file for Intel RealSense D455 camera using official realsense2_camera (ROS2)</description>
+  <description>ROS2 D455 camera node migrated from the in-repo ROS1 implementation</description>
   <maintainer email="user@example.com">user</maintainer>
   <license>BSD</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>realsense2_description</exec_depend>
+  <build_depend>rclcpp</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>librealsense2</build_depend>
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>librealsense2</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>unidingo_description</exec_depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>

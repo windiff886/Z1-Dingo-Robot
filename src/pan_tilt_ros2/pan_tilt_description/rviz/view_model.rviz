@@ -1,0 +1,20 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: RobotModel
+      Robot Description: robot_description
+  Enabled: true
+  Global Options:
+    Fixed Frame: pan_tilt_mount_link
+  Name: root
+Window Geometry:
+  Height: 900
+  Width: 1200

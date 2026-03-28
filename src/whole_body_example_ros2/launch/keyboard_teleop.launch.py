@@ -1,14 +1,14 @@
 """Launch keyboard teleop for Uni-Dingo robot."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     mode_arg = DeclareLaunchArgument(
-        'mode', default_value='',
+        'mode', default_value='simulation',
         description='Robot mode: simulation or real')
 
     teleop_node = Node(
@@ -18,6 +18,7 @@ def generate_launch_description():
         output='screen',
         prefix='xterm -e',
         parameters=[{'mode': LaunchConfiguration('mode')}],
+        on_exit=Shutdown(),
     )
 
     return LaunchDescription([

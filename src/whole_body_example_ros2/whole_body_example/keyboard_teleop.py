@@ -1,37 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Keyboard Teleop - Uni-Dingo robot keyboard control (ROS2)
+Keyboard Teleop - 键盘遥控 Uni-Dingo 机器人
 
-Key bindings:
-    Base control:
-        w/s     - forward/backward (Shift = fast)
-        a/d     - left/right strafe (Shift = fast)
-        q/e     - turn left/right (Shift = fast)
-        Space   - emergency stop
+按键映射:
+    底盘控制:
+        w/s     - 前进/后退 (Shift 加速)
+        a/d     - 左移/右移 (Shift 加速)
+        q/e     - 左转/右转 (Shift 加速)
+        Space   - 急停
 
-    Arm control:
-        1       - both arms Home
-        2       - left arm Home
-        3       - right arm Home
+    机械臂控制:
+        1       - 双臂 Home
+        2       - 左臂 Home
+        3       - 右臂 Home
 
-    End-effector pose control (active arm):
-        t/g     - end-effector up/down (Shift = fast)
-        f/h     - end-effector left/right
-        r/y     - end-effector forward/backward (Shift = fast)
-        Tab     - switch active arm (left/right)
+    末端位姿控制 (当前选中臂):
+        t/g     - 末端上升/下降 (Shift 加速)
+        f/h     - 末端左移/右移
+        r/y     - 末端前进/后退 (Shift 加速)
+        Tab     - 切换控制左/右臂
 
-    Gripper control:
-        o/p     - left gripper open/close
-        [/]     - right gripper open/close
+    夹爪控制:
+        o/p     - 左臂夹爪 开/关
+        [/]     - 右臂夹爪 开/关
 
-    Head (pan-tilt) control:
-        i/k     - tilt up/down (Shift = fast)
-        j/l     - pan left/right (Shift = fast)
-        H       - head home (uppercase)
+    云台控制:
+        i/k     - 上仰/下俯 (Shift 加速)
+        j/l     - 左转/右转 (Shift 加速)
+        H       - 云台归零
 
-    System:
-        ESC/Ctrl+C  - quit
+    系统:
+        ESC/Ctrl+C  - 退出
 
 Usage:
     ros2 run whole_body_example keyboard_teleop
@@ -94,37 +94,37 @@ EE_POSE_BINDINGS = {
 
 HELP_MSG = """
 ============================================
-    Uni-Dingo Keyboard Teleop (ROS2)
+    Uni-Dingo 键盘遥控
 ============================================
 
-Base:
-    w/s     forward/backward    (Shift = fast)
-    a/d     strafe left/right   (Shift = fast)
-    q/e     turn left/right     (Shift = fast)
-    Space   emergency stop
+底盘控制:
+    w/s     前进/后退      (Shift 加速)
+    a/d     左移/右移      (Shift 加速)
+    q/e     左转/右转      (Shift 加速)
+    空格    急停
 
-Arms:
-    1       both arms Home
-    2       left arm Home
-    3       right arm Home
+机械臂控制:
+    1       双臂 Home
+    2       左臂 Home
+    3       右臂 Home
 
-End-effector (active arm):
-    t/g     up/down             (Shift = fast)
-    f/h     left/right
-    r/y     forward/backward    (Shift = fast)
-    Tab     switch active arm
+末端位姿控制 (当前选中臂):
+    t/g     末端上升/下降  (Shift 加速)
+    f/h     末端左移/右移
+    r/y     末端前进/后退  (Shift 加速)
+    Tab     切换控制左/右臂
 
-Grippers:
-    o/p     left gripper open/close
-    [/]     right gripper open/close
+夹爪控制:
+    o/p     左臂夹爪 开/关
+    [/]     右臂夹爪 开/关
 
-Head (pan-tilt):
-    i/k     tilt up/down        (Shift = fast)
-    j/l     pan left/right      (Shift = fast)
-    H       head home (uppercase)
+云台控制:
+    i/k     上仰/下俯      (Shift 加速)
+    j/l     左转/右转      (Shift 加速)
+    H       云台归零
 
-System:
-    ESC     quit
+系统:
+    ESC     退出
 
 ============================================
 """
@@ -282,17 +282,17 @@ class KeyboardTeleop:
         self.robot.head.set_angles(self.head_pan, self.head_tilt)
 
     def _print_status(self):
-        status = f'\rvel: vx={self.vx:.2f} vy={self.vy:.2f} vth={self.vth:.2f}'
-        status += f' | arm: {self.active_arm}'
+        status = f'\r速度: vx={self.vx:.2f} vy={self.vy:.2f} vth={self.vth:.2f}'
+        status += f' | 控制: {self.active_arm}臂'
         if self.robot.head:
-            status += f' | head: pan={self.head_pan:.2f} tilt={self.head_tilt:.2f}'
+            status += f' | 云台: pan={self.head_pan:.2f} tilt={self.head_tilt:.2f}'
         status += '    '
         sys.stdout.write(status)
         sys.stdout.flush()
 
     def run(self):
         print(HELP_MSG)
-        print('Waiting for keyboard input...\n')
+        print('等待键盘输入...\n')
 
         try:
             while self.running and rclpy.ok():
@@ -304,7 +304,7 @@ class KeyboardTeleop:
                     self.vth = 0
 
                 elif key == '\x1b':  # ESC
-                    self._node.get_logger().info('Exiting...')
+                    self._node.get_logger().info('退出...')
                     break
 
                 elif key == '\x03':  # Ctrl+C
@@ -315,7 +315,7 @@ class KeyboardTeleop:
                     self.vy = 0
                     self.vth = 0
                     self.robot.stop_all()
-                    self._node.get_logger().warn('EMERGENCY STOP!')
+                    self._node.get_logger().warn('急停!')
 
                 elif key == '\t':
                     self._switch_active_arm()
@@ -335,7 +335,7 @@ class KeyboardTeleop:
                     self.head_tilt = 0
                     if self.robot.head:
                         self.robot.head.home()
-                    self._node.get_logger().info('Head home')
+                    self._node.get_logger().info('云台归零')
 
                 elif key in EE_POSE_BINDINGS:
                     dx, dy, dz = EE_POSE_BINDINGS[key]
@@ -365,7 +365,7 @@ class KeyboardTeleop:
                 self._print_status()
 
         except Exception as e:
-            self._node.get_logger().error(f'Error: {e}')
+            self._node.get_logger().error(f'错误: {e}')
 
         finally:
             self.shutdown()
@@ -380,7 +380,7 @@ class KeyboardTeleop:
             self.robot.base.stop()
 
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.settings)
-        print('\nKeyboard teleop exited')
+        print('\n退出键盘遥控')
 
 
 def main(args=None):

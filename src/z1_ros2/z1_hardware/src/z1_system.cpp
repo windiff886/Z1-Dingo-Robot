@@ -15,12 +15,22 @@ hardware_interface::CallbackReturn Z1System::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // Read parameters from URDF <ros2_control> hardware parameters
+  // 保留 ROS1 风格的完整参数面，哪怕当前硬件接口主要通过 z1_ctrl_ros2 间接通信。
+  mcu_ip_ = info_.hardware_parameters.at("mcu_ip");
+  port_to_mcu_ = std::stoi(info_.hardware_parameters.at("port_to_mcu"));
+  port_to_sdk_ = std::stoi(info_.hardware_parameters.at("port_to_sdk"));
   controller_ip_ = info_.hardware_parameters.at("controller_ip");
-  sdk_port_ = std::stoi(info_.hardware_parameters.at("sdk_port"));
-  controller_port_ = std::stoi(info_.hardware_parameters.at("controller_port"));
+  own_port_ = std::stoi(info_.hardware_parameters.at("own_port"));
   has_gripper_ = (info_.hardware_parameters.count("has_gripper") &&
                   info_.hardware_parameters.at("has_gripper") == "true");
+
+  // Gripper SDK 写入参数（可选，有默认值）
+  if (info_.hardware_parameters.count("gripper_max_tau")) {
+    gripper_max_tau_ = std::stod(info_.hardware_parameters.at("gripper_max_tau"));
+  }
+  if (info_.hardware_parameters.count("gripper_epsilon")) {
+    gripper_epsilon_ = std::stod(info_.hardware_parameters.at("gripper_epsilon"));
+  }
 
   // Validate joint count
   size_t expected_joints = has_gripper_ ? 7 : 6;
@@ -36,8 +46,14 @@ hardware_interface::CallbackReturn Z1System::on_init(
   hw_efforts_.resize(6, 0.0);
   hw_commands_.resize(6, 0.0);
 
-  RCLCPP_INFO(logger_, "Z1System initialized: ip=%s, sdk_port=%d, ctrl_port=%d, gripper=%s",
-    controller_ip_.c_str(), sdk_port_, controller_port_,
+  RCLCPP_INFO(
+    logger_,
+    "Z1System initialized: mcu_ip=%s, port_to_mcu=%d, controller_ip=%s, own_port=%d, port_to_sdk=%d, gripper=%s",
+    mcu_ip_.c_str(),
+    port_to_mcu_,
+    controller_ip_.c_str(),
+    own_port_,
+    port_to_sdk_,
     has_gripper_ ? "true" : "false");
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -46,12 +62,18 @@ hardware_interface::CallbackReturn Z1System::on_init(
 hardware_interface::CallbackReturn Z1System::on_configure(
     const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  RCLCPP_INFO(logger_, "Configuring Z1 arm connection to %s:%d...",
-    controller_ip_.c_str(), controller_port_);
+  RCLCPP_INFO(
+    logger_,
+    "Configuring Z1 arm connection via bridge %s:%d (mcu=%s:%d, sdk_port=%d)...",
+    controller_ip_.c_str(),
+    own_port_,
+    mcu_ip_.c_str(),
+    port_to_mcu_,
+    port_to_sdk_);
 
   try {
     arm_ = std::make_unique<UNITREE_ARM_SDK::UnitreeArm>(
-        controller_ip_, static_cast<uint>(sdk_port_), static_cast<uint>(controller_port_));
+        controller_ip_, static_cast<uint>(own_port_), static_cast<uint>(port_to_sdk_));
     arm_->init();
   } catch (const std::exception & e) {
     RCLCPP_ERROR(logger_, "Failed to initialize Z1 arm: %s", e.what());
@@ -163,6 +185,9 @@ hardware_interface::return_type Z1System::write(
 
   if (has_gripper_) {
     arm_->armCmd.gripperCmd.angle = gripper_command_;
+    arm_->armCmd.gripperCmd.maxTau = gripper_max_tau_;
+    arm_->armCmd.gripperCmd.epsilon_inner = gripper_epsilon_;
+    arm_->armCmd.gripperCmd.epsilon_outer = gripper_epsilon_;
   }
 
   arm_->sendRecv();

@@ -43,4 +43,9 @@ install(TARGETS pan_tilt_driver_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/pan_tilt_control.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

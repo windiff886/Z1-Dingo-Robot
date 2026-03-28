@@ -2,240 +2,218 @@
 
 ## 项目概述
 
-本项目是基于 **ROS2 Humble** 的移动操作机器人工作区，集成 Clearpath Dingo 全向底盘、双 Unitree Z1 六自由度机械臂、IQR Pan-Tilt 云台和 Intel RealSense D455 深度相机。支持仿真和真机两种模式。
+本项目是基于 **ROS2 Humble** 的移动操作机器人工作区，集成 Clearpath Dingo 底盘、双 Unitree Z1 机械臂、IQR Pan-Tilt 云台和 Intel RealSense D455 相机。
 
-**主要能力：**
-- Dingo 全向/差速移动底盘控制
-- 双 Z1 机械臂独立或协同控制（via MoveIt2）
-- Pan-Tilt 云台 look-at 控制
-- D455 RGB-D 感知与点云
-- 全身键盘遥控
+截至 **2026-03-27**，ROS2 侧已经形成以下主链：
 
----
+- 统一系统入口：`uni_dingo_api/launch/bringup.launch.py`
+- 仿真子入口：`simulation.launch.py`
+- 真机子入口：`real.launch.py`
+- 独立模型查看入口：`visualization.launch.py`
+- 双臂 MoveIt2 配置：`z1_moveit_config`
+- `dual_arm_gazebo_moveit` 风格 Gazebo 仿真链
+- 组合模型显示 / 硬件 / world / D455 视图入口
+- Pan-Tilt 与 D455 独立视图入口
+- 键盘遥控与 pose visualizer 示例
 
-## 系统架构
+当前仍未完全清零的差异：
 
+- `bringup.launch.py --show-args` 的顶层参数展示面仍不完全等价于 ROS1
+- Gazebo 与真机的运行级联调证据仍需补充
+- 底盘实现来源仍是 Clearpath ROS2 官方包，而不是仓库内直接复刻 ROS1 驱动链
+
+## 系统分层
+
+```text
+应用层
+├── whole_body_example
+│   ├── keyboard_teleop
+│   └── pose_visualizer
+└── 用户自定义 rclpy 应用
+
+统一接口层
+└── uni_dingo_api
+    ├── RobotAPI
+    ├── BaseAPI
+    ├── ArmAPI
+    ├── HeadAPI
+    ├── PerceptionAPI
+    └── robot_state_publisher_node
+
+系统装配层
+└── uni_dingo_api/launch
+    ├── bringup.launch.py
+    ├── simulation.launch.py
+    ├── real.launch.py
+    ├── visualization.launch.py
+    └── includes/
+        ├── base.launch.py
+        └── moveit.launch.py
+
+设备与描述层
+├── z1_description / z1_hardware / z1_bringup / z1_moveit_config
+├── pan_tilt_description / pan_tilt_driver / pan_tilt_bringup
+├── d455_camera_bringup
+└── unidingo_description
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                         应用层 (Application)                      │
-│           whole_body_example (键盘遥控, 用户脚本)                  │
-└──────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                      统一接口层 (uni_dingo_api)                    │
-│  ┌──────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐ │
-│  │ RobotAPI │→│ BaseAPI │→│ ArmAPI  │→│ HeadAPI │→│Perception│ │
-│  └──────────┘ └─────────┘ └─────────┘ └─────────┘ └──────────┘ │
-│                        ActionFuture 异步模型                      │
-└──────────────────────────────────────────────────────────────────┘
-                                  │
-                    ┌─────────────┼──────────────┐
-                    ▼             ▼              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    ROS2 中间件 (DDS + ros2_control)                │
-│                                                                   │
-│  仿真模式:                         真机模式:                      │
-│  ├─ joint_state_publisher_gui      ├─ z1_hardware (ros2_control)  │
-│  └─ (URDF 可视化)                  ├─ pan_tilt_driver (rclcpp)    │
-│                                    ├─ realsense2_camera           │
-│                                    └─ clearpath_robot (底盘)      │
-└──────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                          物理硬件 / 仿真器                        │
-│     Dingo 底盘        Z1 机械臂 ×2       云台        D455 相机    │
-│   (CAN/Serial)       (UDP/z1_sdk)    (Modbus RTU)  (USB3/UVC)   │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
 
 ## 目录结构
 
-```
-Z1-Dingo-Robot/
-├── src/
-│   ├── uni_dingo_msgs_ros2/           # 自定义消息/服务/动作
-│   │   ├── msg/                       #   RobotState, ArmState, BaseState, ...
-│   │   ├── srv/                       #   GetRobotState, SetEnabled, EmergencyStop
-│   │   └── action/                    #   MoveArm, MoveBase, MoveHead, ...
-│   │
-│   ├── pan_tilt_ros2/
-│   │   ├── pan_tilt_msgs/             # PanTiltCmdDeg, PanTiltStatus
-│   │   ├── pan_tilt_driver/           # Modbus RTU 驱动 (rclcpp)
-│   │   ├── pan_tilt_description/      # URDF + STL 网格
-│   │   └── pan_tilt_bringup/          # 启动文件
-│   │
-│   ├── d455_camera_ros2/              # realsense2_camera 启动封装
-│   │
-│   ├── z1_ros2/
-│   │   ├── z1_description/            # Z1 URDF xacro (带 prefix 支持)
-│   │   │   ├── urdf/
-│   │   │   │   ├── z1.urdf.xacro      #   可复用臂宏 (prefix, parent, xyz, rpy)
-│   │   │   │   ├── z1.ros2_control.xacro  # ros2_control 硬件标签
-│   │   │   │   └── const.xacro        #   物理参数 (惯性、关节限位)
-│   │   │   └── config/
-│   │   │       ├── z1_controllers.yaml       # 单臂控制器
-│   │   │       └── z1_dual_controllers.yaml  # 双臂控制器
-│   │   ├── z1_hardware/               # ros2_control SystemInterface
-│   │   │   ├── src/z1_system.cpp      #   通过 z1_sdk UDP 读写关节
-│   │   │   └── third_party/           #   unitree_arm_sdk 头文件 + .so
-│   │   └── z1_bringup/               # 单臂/双臂启动文件
-│   │
-│   ├── unidingo_description_ros2/     # 组合机器人 URDF
-│   │   └── urdf/
-│   │       ├── dingo_base.xacro       #   简化 Dingo 底盘
-│   │       └── uni_dingo_dual_arm.urdf.xacro  # 全系统组装
-│   │
-│   ├── uni_dingo_api_ros2/            # 统一 Python API
-│   │   ├── uni_dingo_api/
-│   │   │   ├── api/
-│   │   │   │   ├── robot_api.py       #   RobotAPI 入口
-│   │   │   │   ├── base_api.py        #   底盘 cmd_vel / odom
-│   │   │   │   ├── arm_api.py         #   MoveIt2 运动规划 + 夹爪
-│   │   │   │   ├── head_api.py        #   云台角度控制
-│   │   │   │   ├── perception_api.py  #   RGB-D + 点云 + TF
-│   │   │   │   └── action_future.py   #   异步操作封装
-│   │   │   └── robot_state_publisher_node.py  # 状态聚合节点
-│   │   ├── config/robot_config.yaml   # 子系统配置
-│   │   └── launch/bringup.launch.py   # 全系统启动
-│   │
-│   └── whole_body_example_ros2/       # 示例
-│       └── whole_body_example/
-│           └── keyboard_teleop.py     # 键盘遥控
-│
-├── docs/
-│   ├── architecture.md                # 本文档
-│   └── api_framework.md               # API 接口说明
-│
-├── .gitignore
-└── README.md
+```text
+src/
+├── uni_dingo_msgs_ros2/
+│   ├── msg/
+│   ├── srv/
+│   └── action/
+├── pan_tilt_ros2/
+│   ├── pan_tilt_msgs/
+│   ├── pan_tilt_driver/
+│   ├── pan_tilt_description/
+│   └── pan_tilt_bringup/
+├── d455_camera_ros2/
+├── z1_ros2/
+│   ├── z1_description/
+│   ├── z1_hardware/
+│   ├── z1_bringup/
+│   └── z1_moveit_config/
+├── unidingo_description_ros2/
+│   ├── urdf/
+│   ├── launch/
+│   └── rviz/
+├── uni_dingo_api_ros2/
+│   ├── config/robot_config.yaml
+│   ├── launch/
+│   └── uni_dingo_api/api/
+└── whole_body_example_ros2/
+    ├── whole_body_example/
+    ├── launch/
+    └── rviz/
 ```
 
----
+## 关键包关系
 
-## ROS2 包依赖关系
-
-```
-uni_dingo_msgs ─────────────────────────────────┐
-pan_tilt_msgs ───────────────────────────┐      │
-                                         │      │
-z1_description ──→ z1_hardware           │      │
-                   z1_bringup            │      │
-pan_tilt_description ──→ pan_tilt_driver │      │
-                         pan_tilt_bringup│      │
-d455_camera_bringup                      │      │
-unidingo_description (uses z1_description│      │
-  + pan_tilt_description)                │      │
-                                         ▼      ▼
-                                    uni_dingo_api
-                                         │
-                                         ▼
-                                  whole_body_example
+```text
+uni_dingo_msgs
+        │
+        ▼
+uni_dingo_api ──────────────→ whole_body_example
+   │   │   │   │   │
+   │   │   │   │   └─→ d455_camera_bringup
+   │   │   │   └─────→ pan_tilt_bringup / pan_tilt_description
+   │   │   └─────────→ z1_moveit_config
+   │   └─────────────→ z1_bringup / z1_hardware / z1_description
+   └─────────────────→ unidingo_description
 ```
 
----
+## 当前启动结构
 
-## 话题列表
+### 统一入口
 
-### 传感器话题（上行）
+`uni_dingo_api/launch/bringup.launch.py`
 
-| 子系统 | 话题 | 消息类型 | 频率 |
-|--------|------|----------|------|
-| 底盘 | `/odometry/filtered` | `nav_msgs/msg/Odometry` | 50 Hz |
-| 机械臂 | `/joint_states` | `sensor_msgs/msg/JointState` | 100 Hz |
-| 云台 | `/pan_tilt_status` | `pan_tilt_msgs/msg/PanTiltStatus` | 20 Hz |
-| 相机 | `/d455/color/image_raw` | `sensor_msgs/msg/Image` | 30 Hz |
-| 相机 | `/d455/aligned_depth_to_color/image_raw` | `sensor_msgs/msg/Image` | 30 Hz |
-| 相机 | `/d455/depth/color/points` | `sensor_msgs/msg/PointCloud2` | 15 Hz |
-| 聚合 | `/uni_dingo/state` | `uni_dingo_msgs/msg/RobotState` | 10 Hz |
+- 重新恢复为 ROS1 风格总入口
+- 支持 `mode:=simulation|real`
+- `simulation` 与 `real` 走独立子入口
+- `moveit` 当前默认开启
+- 顶层保留统一装配参数：`gui/rviz/world/paused/teleop/moveit/auto_safe_pose/...`
 
-### 命令话题（下行）
+### 仿真模式
 
-| 子系统 | 话题 | 消息类型 |
-|--------|------|----------|
+`simulation.launch.py`
+
+- include `unidingo_description/dual_arm_gazebo_moveit.launch.py`
+- 默认 world 为 `dingo_race.world`
+- 仿真链包含 Gazebo、组合模型生成、底盘控制、teleop、双臂控制器、safe pose、云台仿真控制链、MoveIt2 和统一状态发布
+- `simulation` 语义已恢复为 Gazebo 仿真，而不是单纯模型查看
+
+### 模型可视化
+
+`visualization.launch.py`
+
+- include `unidingo_description/dual_arm_display.launch.py`
+- 可选 `joint_state_publisher_gui`
+- 可选 RViz2
+- 仅用于模型查看，不属于统一仿真/真机 bringup
+
+### 真机模式
+
+`real.launch.py`
+
+- 既可被 `bringup.launch.py mode:=real` include，也可独立直接调用
+- 承接左右臂、云台、相机的真机连接参数
+- `robot_state_publisher`
+- `ros2_control_node`
+- 左右臂 / 夹爪 spawner
+- 可选 `pan_tilt_bringup`
+- 可选 `d455_camera_bringup`
+- 可选外部底盘 include
+- 默认 MoveIt2 include
+- 默认统一状态聚合
+- 机械臂网络参数已恢复为 ROS1 风格：
+  `arm_ip + port_to_mcu + port_to_sdk + own_port`
+
+## 话题与接口
+
+### 状态上行
+
+| 子系统 | 话题 | 类型 |
+|---|---|---|
+| 底盘 | `/odometry/filtered` | `nav_msgs/msg/Odometry` |
+| 机械臂 / 组合模型 | `/joint_states` | `sensor_msgs/msg/JointState` |
+| 云台 | `/pan_tilt_status` | `pan_tilt_msgs/msg/PanTiltStatus` |
+| D455 RGB | `/d455/color/image_raw` | `sensor_msgs/msg/Image` |
+| D455 深度 | `/d455/aligned_depth_to_color/image_raw` | `sensor_msgs/msg/Image` |
+| D455 点云 | `/d455/depth/color/points` | `sensor_msgs/msg/PointCloud2` |
+| 整机聚合 | `/uni_dingo/state` | `uni_dingo_msgs/msg/RobotState` |
+
+### 命令下行
+
+| 子系统 | 话题 | 类型 |
+|---|---|---|
 | 底盘 | `/cmd_vel` | `geometry_msgs/msg/Twist` |
-| 左臂轨迹 | `/left_arm_controller/joint_trajectory` | JointTrajectoryController |
-| 右臂轨迹 | `/right_arm_controller/joint_trajectory` | JointTrajectoryController |
+| 左臂 | `/left_arm_controller/follow_joint_trajectory` | FollowJointTrajectory |
+| 右臂 | `/right_arm_controller/follow_joint_trajectory` | FollowJointTrajectory |
 | 左夹爪 | `/left_gripper_controller/gripper_cmd` | `control_msgs/action/GripperCommand` |
 | 右夹爪 | `/right_gripper_controller/gripper_cmd` | `control_msgs/action/GripperCommand` |
 | 云台 | `/pan_tilt_cmd_deg` | `pan_tilt_msgs/msg/PanTiltCmdDeg` |
 
-### 仿真模式专用话题
+### 仿真特有话题
 
-| 话题 | 消息类型 | 说明 |
-|------|----------|------|
+| 话题 | 类型 | 说明 |
+|---|---|---|
 | `/pan_tilt/pan_controller/command` | `std_msgs/msg/Float64` | 云台 yaw 位置命令 |
 | `/pan_tilt/tilt_controller/command` | `std_msgs/msg/Float64` | 云台 pitch 位置命令 |
 | `/camera/color/image_raw` | `sensor_msgs/msg/Image` | 仿真 RGB |
 | `/camera/depth/image_raw` | `sensor_msgs/msg/Image` | 仿真深度 |
 
----
+## TF 结构
 
-## ros2_control 架构
-
-### 硬件接口
-
-| 组件 | 插件 | 通信方式 |
-|------|------|----------|
-| 双 Z1 臂 | `z1_hardware/Z1System` | UDP (z1_sdk) |
-| Dingo 底盘 | Clearpath 官方 | CAN / Serial |
-
-### 控制器配置 (双臂)
-
-```yaml
-controller_manager:
-  joint_state_broadcaster    # 发布 /joint_states
-  left_arm_controller        # JointTrajectoryController (left_joint1~6)
-  right_arm_controller       # JointTrajectoryController (right_joint1~6)
-  left_gripper_controller    # GripperActionController
-  right_gripper_controller   # GripperActionController
-```
-
-控制器启动顺序：`joint_state_broadcaster` → 两臂 arm_controller (并行) → 两侧 gripper_controller。
-
----
-
-## TF 树
-
-```
+```text
 base_footprint
 └── base_link
     ├── imu_link
-    ├── left_arm_support_link
-    │   └── left_link00 → left_link01 → ... → left_link06
-    │       └── left_gripperStator → left_gripperMover
-    ├── right_arm_support_link
-    │   └── right_link00 → right_link01 → ... → right_link06
-    │       └── right_gripperStator → right_gripperMover
-    └── pan_tilt_support_link
+    ├── leftarm_link
+    │   └── left_link00 → ... → left_link06
+    ├── rightarm_link
+    │   └── right_link00 → ... → right_link06
+    └── pan_tilt_mount_link
         └── pan_tilt_base_link → pan_tilt_yaw_link → pan_tilt_pitch_link
             └── pan_tilt_surface → camera_support_link
-                └── camera_link → camera_color_optical_frame
+                └── head_d455_link → head_d455_optical_frame
 ```
 
----
+## 仿真 / 真机切换
 
-## 仿真 vs 真机切换
+| 特性 | `simulation` | `real` |
+|---|---|---|
+| 系统语义 | Gazebo 仿真总入口 | 真机 bringup |
+| 双臂规划 | 默认 MoveIt2 | 默认 MoveIt2 |
+| 云台控制 | Gazebo 云台控制链 | `pan_tilt_driver` |
+| 相机 | Gazebo 组合模型中的相机结构 | `d455_camera_bringup` |
+| 模型查看 | 改由 `visualization.launch.py` | 改由 `visualization.launch.py` |
+| 底盘 | Gazebo 中生成组合模型 | 外部 Clearpath ROS2 包 |
 
-通过 `mode` 参数和 `robot_config.yaml` 控制：
+## 参考文档
 
-| 特性 | 仿真模式 (`simulation`) | 真机模式 (`real`) |
-|------|------------------------|------------------|
-| 关节状态 | `joint_state_publisher_gui` | `ros2_control` + `z1_hardware` |
-| 机械臂规划 | MoveIt2 (需额外配置) | MoveIt2 + z1_sdk |
-| 云台控制 | Float64 位置命令 | Modbus RTU (`pan_tilt_driver`) |
-| 相机 | 无 (或 Gazebo 插件) | `realsense2_camera` |
-| 底盘 | 无 (或 Gazebo) | Clearpath ROS2 driver |
-
----
-
-## 待完成项
-
-- [ ] Dingo 底盘 ROS2 集成（安装 `clearpath_common` + 配置 `robot.yaml`）
-- [ ] MoveIt2 双臂 SRDF + 规划组配置
-- [ ] Gazebo Classic / Ignition 仿真集成
-- [ ] Nav2 导航集成
-- [ ] 真机全系统联调测试
+- 当前严格对齐状态：`docs/ros2_strict_alignment_status.md`
+- 完全对齐实施计划：`docs/superpowers/plans/2026-03-27-ros2-full-alignment-plan.md`

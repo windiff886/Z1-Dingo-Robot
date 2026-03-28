@@ -4,3 +4,5 @@ log/
 **/__pycache__/
 *.pyc
 .colcon_ignore
+.claude/
+.vscode/

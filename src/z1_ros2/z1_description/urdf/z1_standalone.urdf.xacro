@@ -2,13 +2,15 @@
 <!--
   Standalone Z1 arm URDF for single-arm bringup.
   Instantiates one Z1 arm attached to a "world" frame.
+
+  mcu_ip / port_to_mcu 已移至 z1_ctrl_ros2 节点参数，不在此处声明。
+  Z1System 只需知道如何连接 z1_ctrl_ros2（controller_ip / port_to_sdk / own_port）。
 -->
 <robot name="z1_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <xacro:arg name="has_gripper" default="true"/>
-    <xacro:arg name="controller_ip" default="127.0.0.1"/>
-    <xacro:arg name="sdk_port" default="0"/>
-    <xacro:arg name="controller_port" default="8871"/>
+    <xacro:arg name="has_gripper"    default="true"/>
+    <xacro:arg name="port_to_sdk"    default="8871"/>
+    <xacro:arg name="own_port"       default="8872"/>
 
     <xacro:include filename="$(find z1_description)/urdf/z1.urdf.xacro"/>
     <xacro:include filename="$(find z1_description)/urdf/z1.ros2_control.xacro"/>
@@ -19,9 +21,9 @@
                   has_gripper="$(arg has_gripper)"/>
 
     <xacro:z1_ros2_control prefix=""
-                           controller_ip="$(arg controller_ip)"
-                           sdk_port="$(arg sdk_port)"
-                           controller_port="$(arg controller_port)"
+                           port_to_sdk="$(arg port_to_sdk)"
+                           controller_ip="127.0.0.1"
+                           own_port="$(arg own_port)"
                            has_gripper="$(arg has_gripper)"/>
 
 </robot>

@@ -2,6 +2,8 @@
 
 Intel RealSense D455 深度相机的 ROS 驱动封装。
 
+> 说明：本目录是 **ROS1 参考实现**。当前 ROS2 对应入口位于 `src/d455_camera_ros2/`，启动包名为 `d455_camera_bringup`。
+
 ## 原理
 
 基于 Intel RealSense SDK 2.0 和 librealsense，通过 USB3.0 连接 D455 相机，获取 RGB 图像、深度图像、IMU 数据和点云。

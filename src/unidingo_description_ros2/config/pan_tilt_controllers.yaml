@@ -1,0 +1,19 @@
+controller_manager:
+  ros__parameters:
+    pan_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    tilt_controller:
+      type: forward_command_controller/ForwardCommandController
+
+pan_controller:
+  ros__parameters:
+    joints:
+      - pan_tilt_yaw_joint
+    interface_name: position
+
+tilt_controller:
+  ros__parameters:
+    joints:
+      - pan_tilt_pitch_joint
+    interface_name: position

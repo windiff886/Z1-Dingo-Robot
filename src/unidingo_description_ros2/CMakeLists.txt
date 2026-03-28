@@ -6,5 +6,7 @@ install(DIRECTORY urdf/ DESTINATION share/${PROJECT_NAME}/urdf)
 install(DIRECTORY meshes/ DESTINATION share/${PROJECT_NAME}/meshes)
 install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
 install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
+install(DIRECTORY rviz/ DESTINATION share/${PROJECT_NAME}/rviz)
+install(PROGRAMS scripts/set_dual_arm_safe_pose.py DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

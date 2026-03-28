@@ -6,116 +6,205 @@ Clearpath Dingo 全向底盘 + 双 Unitree Z1 六自由度机械臂 + IQR Pan-Ti
 
 | 子系统 | 硬件 | ROS2 包 |
 |--------|------|---------|
-| 移动底盘 | Clearpath Dingo-O (全向) | `clearpath_common` (官方) |
-| 机械臂 ×2 | Unitree Z1 (6-DOF) | `z1_description`, `z1_hardware`, `z1_bringup` |
-| 云台 | IQR Pan-Tilt (Modbus RTU) | `pan_tilt_driver`, `pan_tilt_bringup` |
-| 深度相机 | Intel RealSense D455 | `d455_camera_bringup` (封装 `realsense2_camera`) |
-| 统一接口 | — | `uni_dingo_api` |
+| 移动底盘 | Clearpath Dingo-O (全向) | 外部 `clearpath_robot` / `clearpath_common` |
+| 机械臂 ×2 | Unitree Z1 (6-DOF) | `z1_description`, `z1_hardware`, `z1_bringup`, `z1_moveit_config` |
+| 云台 | IQR Pan-Tilt (Modbus RTU) | `pan_tilt_driver`, `pan_tilt_bringup`, `pan_tilt_description` |
+| 深度相机 | Intel RealSense D455 | `d455_camera_bringup` |
+| 组合描述 | Dingo + 双臂 + 云台 + D455 | `unidingo_description` |
+| 统一接口 | 整机 Python API + 系统启动 | `uni_dingo_api` |
+| 示例工具 | 键盘遥控、位姿可视化 | `whole_body_example` |
 
 ## 环境要求
 
 - Ubuntu 22.04
 - ROS2 Humble
-- colcon build tool
-- MoveIt2 (`ros-humble-moveit`)
-- ros2_control (`ros-humble-ros2-control`, `ros-humble-ros2-controllers`)
-- RealSense SDK + ROS2 wrapper (`ros-humble-realsense2-camera`)
+- `colcon`
+- MoveIt2
+- `ros2_control` / `ros2_controllers`
+- `realsense2_camera`
+- 如需底盘接入：Clearpath ROS2 官方包
 
-## 快速启动
-
-### 编译
+## 编译
 
 ```bash
 source /opt/ros/humble/setup.bash
-cd Z1-Dingo-Robot
+cd /path/to/Z1-Dingo-Robot
 colcon build
 source install/setup.bash
 ```
 
-### 仿真模式（URDF 可视化）
+## 统一启动
+
+### 总入口
 
 ```bash
-ros2 launch uni_dingo_api bringup.launch.py mode:=simulation use_rviz:=true
+ros2 launch uni_dingo_api bringup.launch.py
 ```
+
+`bringup.launch.py` 已恢复为 ROS1 风格总入口，默认等价于：
+
+```bash
+ros2 launch uni_dingo_api bringup.launch.py mode:=simulation
+```
+
+当前顶层关键参数：
+
+- `mode:=simulation|real`
+- `gui:=true|false`
+- `rviz:=true|false`
+- `world:=<gazebo_world>`
+- `paused:=true|false`
+- `teleop:=keyboard|joystick|none`
+- `moveit:=true|false`
+- `auto_safe_pose:=true|false`
+- `base:=true|false`
+- `left_arm:=true|false`
+- `right_arm:=true|false`
+- `head:=true|false`
+- `perception:=true|false`
+- `state_publisher:=true|false`
+- `has_gripper:=true|false`
+
+### Gazebo 仿真
+
+```bash
+ros2 launch uni_dingo_api bringup.launch.py \
+  mode:=simulation \
+  teleop:=keyboard \
+  rviz:=true
+```
+
+默认 world 为 `dingo_race.world`，默认启动 MoveIt2，并按需接入底盘控制、双臂控制器、safe pose、云台仿真控制链和统一状态发布。
 
 ### 真机模式
 
 ```bash
-ros2 launch uni_dingo_api bringup.launch.py mode:=real \
-  left_controller_ip:=192.168.123.110 \
-  right_controller_ip:=192.168.123.111
+ros2 launch uni_dingo_api bringup.launch.py \
+  mode:=real \
+  left_arm_ip:=192.168.123.110 \
+  left_port_to_mcu:=8881 \
+  left_port_to_sdk:=8871 \
+  left_own_port:=8872 \
+  right_arm_ip:=192.168.123.111 \
+  right_port_to_mcu:=8882 \
+  right_port_to_sdk:=8873 \
+  right_own_port:=8874
 ```
 
-### 键盘遥控
+如果只想直接走真机子入口，也可以使用：
 
 ```bash
-ros2 run whole_body_example keyboard_teleop --ros-args -p mode:=simulation
+ros2 launch uni_dingo_api real.launch.py \
+  left_arm_ip:=192.168.123.110 \
+  right_arm_ip:=192.168.123.111
 ```
 
-按键说明见 [键盘遥控文档](#键盘遥控按键)。
+真机入口的核心连接参数为：
+
+- 左臂：`left_arm_ip`、`left_port_to_mcu`、`left_port_to_sdk`、`left_own_port`
+- 右臂：`right_arm_ip`、`right_port_to_mcu`、`right_port_to_sdk`、`right_own_port`
+- 云台：`pan_tilt_port`
+- 相机：`camera_serial`、`color_fps`、`depth_fps`
+
+`base:=true` 时仍通过 Clearpath ROS2 官方包接入底盘，但外部适配细节不再暴露给顶层用户。
+
+## 模型可视化
+
+滑块与 RViz 已从统一 bringup 中拆出，单独用于模型查看：
+
+```bash
+ros2 launch uni_dingo_api visualization.launch.py
+```
+
+常用参数：
+
+- `gui:=true|false`
+  控制是否启用 `joint_state_publisher_gui`
+- `use_rviz:=true|false`
+  控制是否启动 RViz2
+- `head:=true|false`
+- `perception:=true|false`
+- `has_gripper:=true|false`
 
 ## 独立组件启动
 
-### 双臂 (Z1)
+### 双臂硬件与规划
 
 ```bash
-# 单臂
-ros2 launch z1_bringup z1_bringup.launch.py controller_ip:=192.168.123.110
-
-# 双臂
 ros2 launch z1_bringup z1_dual_bringup.launch.py \
-  left_controller_ip:=192.168.123.110 \
-  right_controller_ip:=192.168.123.111
+  left_arm_ip:=192.168.123.110 \
+  left_port_to_mcu:=8881 \
+  left_port_to_sdk:=8871 \
+  left_own_port:=8872 \
+  right_arm_ip:=192.168.123.111 \
+  right_port_to_mcu:=8882 \
+  right_port_to_sdk:=8873 \
+  right_own_port:=8874
+
+ros2 launch z1_moveit_config move_group.launch.py
+ros2 launch z1_moveit_config moveit_rviz.launch.py
 ```
 
-### 云台 (Pan-Tilt)
+### 组合模型与视图
 
 ```bash
-ros2 launch pan_tilt_bringup pan_tilt_bringup.launch.py port:=/dev/ttyUSB0
+ros2 launch uni_dingo_api visualization.launch.py
+ros2 launch unidingo_description dual_arm_display.launch.py
+ros2 launch unidingo_description dual_arm_hw.launch.py
+ros2 launch unidingo_description dual_arm_world.launch.py
+ros2 launch unidingo_description view_d455_only.launch.py
 ```
 
-### 相机 (D455)
+### 云台
 
 ```bash
-ros2 launch d455_camera_bringup d455_camera.launch.py
+ros2 launch pan_tilt_bringup pan_tilt_bringup.launch.py pan_tilt_port:=/dev/ttyUSB0
+ros2 launch pan_tilt_description view_model.launch.py
+ros2 launch pan_tilt_description view_pan_tilt_only.launch.py
+ros2 run pan_tilt_driver pan_tilt_control.py
 ```
 
-### URDF 可视化
+### 相机
 
 ```bash
-ros2 launch unidingo_description display.launch.py
+ros2 launch d455_camera_bringup d455_camera.launch.py \
+  camera_serial:= \
+  color_fps:=30 \
+  depth_fps:=30
+
+ros2 launch d455_camera_bringup view_d455.launch.py
+```
+
+### 示例工具
+
+```bash
+ros2 run whole_body_example keyboard_teleop --ros-args -p mode:=simulation
+ros2 launch whole_body_example pose_visualizer.launch.py
 ```
 
 ## Python API 使用
 
 ```python
 import rclpy
-rclpy.init()
-
+from geometry_msgs.msg import Pose
 from uni_dingo_api import RobotAPI
 
+rclpy.init()
 robot = RobotAPI(mode='simulation')
 
-# 底盘控制
-robot.base.move(linear_x=0.3, linear_y=0.0, angular_z=0.0)
+if robot.is_ready():
+    robot.base.move(linear_x=0.3, linear_y=0.0, angular_z=0.0)
+    robot.left_arm.move_to_named('home').wait()
 
-# 机械臂控制
-robot.left_arm.move_to_named('home').wait()
+target = Pose()
+target.position.x = 0.4
+target.position.z = 0.3
+robot.left_arm.move_to_pose(target).wait()
 
-# 夹爪
-robot.left_arm.gripper_open().wait()
-robot.left_arm.gripper_close().wait()
-
-# 云台
-robot.head.set_angles(pan=0.5, tilt=-0.2).wait()
-
-# 感知
-rgb_msg = robot.perception.get_rgb()
-depth_np = robot.perception.get_depth_numpy()
-
-# 急停与恢复
-robot.emergency_stop()
-robot.recover()
+robot.whole_body_move(
+    base_goal=(0.5, 0.0, 0.0),
+    left_arm_goal=[0.0, 0.2, -0.2, 0.0, 0.0, 0.0],
+).wait()
 
 robot.destroy()
 rclpy.shutdown()
@@ -140,32 +229,35 @@ rclpy.shutdown()
 | 右夹爪 开/关 | `[` / `]` | |
 | 云台上仰/下俯 | `i` / `k` | Shift 加速 |
 | 云台左转/右转 | `j` / `l` | Shift 加速 |
-| 云台归零 | `H` (大写) | |
+| 云台归零 | `H` | |
 | 退出 | `ESC` | |
 
 ## 文档
 
-- [项目架构](docs/architecture.md) — 系统架构、目录结构、话题列表
-- [API 框架](docs/api_framework.md) — Python API 接口说明
+- [项目架构](docs/architecture.md)
+- [API 框架](docs/api_framework.md)
+- [ROS2 严格对齐状态](docs/ros2_strict_alignment_status.md)
+- [ROS2 完全对齐实施计划](docs/superpowers/plans/2026-03-27-ros2-full-alignment-plan.md)
 
 ## 目录结构
 
-```
+```text
 src/
-├── uni_dingo_msgs_ros2/        # 消息/服务/动作定义
+├── uni_dingo_msgs_ros2/
 ├── pan_tilt_ros2/
-│   ├── pan_tilt_msgs/          # 云台消息定义
-│   ├── pan_tilt_driver/        # 云台驱动 (rclcpp + Modbus RTU)
-│   ├── pan_tilt_description/   # 云台 URDF + 网格
-│   └── pan_tilt_bringup/       # 云台启动文件
-├── d455_camera_ros2/           # D455 相机启动封装
+│   ├── pan_tilt_msgs/
+│   ├── pan_tilt_driver/
+│   ├── pan_tilt_description/
+│   └── pan_tilt_bringup/
+├── d455_camera_ros2/
 ├── z1_ros2/
-│   ├── z1_description/         # Z1 臂 URDF (支持 prefix) + ros2_control 配置
-│   ├── z1_hardware/            # ros2_control 硬件接口 (z1_sdk)
-│   └── z1_bringup/             # 单臂/双臂启动文件
-├── unidingo_description_ros2/  # 组合机器人 URDF (底盘+双臂+云台+相机)
-├── uni_dingo_api_ros2/         # 统一 Python API + 系统启动文件
-└── whole_body_example_ros2/    # 键盘遥控等示例
+│   ├── z1_description/
+│   ├── z1_hardware/
+│   ├── z1_bringup/
+│   └── z1_moveit_config/
+├── unidingo_description_ros2/
+├── uni_dingo_api_ros2/
+└── whole_body_example_ros2/
 ```
 
-> 旧 ROS1 包 (`src/dingo/`, `src/z1_ros/`, `src/pan_tilt_ros/` 等) 已通过 `COLCON_IGNORE` 排除，保留作为参考。
+> 旧 ROS1 包（如 `src/dingo/`、`src/z1_ros/`、`src/pan_tilt_ros/`、`src/d455_camera/`）保留为迁移参考，不参与 ROS2 构建。

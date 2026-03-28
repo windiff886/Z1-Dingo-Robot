@@ -1,30 +1,32 @@
-import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-from ament_index_python.packages import get_package_share_directory
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    realsense_dir = get_package_share_directory('realsense2_camera')
-    realsense_launch = os.path.join(realsense_dir, 'launch', 'rs_launch.py')
-
     return LaunchDescription([
-        DeclareLaunchArgument('camera_name', default_value='d455'),
-        DeclareLaunchArgument('camera_namespace', default_value='d455'),
-
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(realsense_launch),
-            launch_arguments={
-                'camera_name': LaunchConfiguration('camera_name'),
-                'camera_namespace': LaunchConfiguration('camera_namespace'),
-                'enable_color': 'true',
-                'enable_depth': 'true',
-                'rgb_camera.color_profile': '640x480x30',
-                'depth_module.depth_profile': '640x480x30',
-                'align_depth.enable': 'true',
-                'pointcloud.enable': 'true',
-            }.items(),
+        DeclareLaunchArgument('camera_serial', default_value=''),
+        DeclareLaunchArgument('color_fps', default_value='30'),
+        DeclareLaunchArgument('depth_fps', default_value='30'),
+        Node(
+            package='d455_camera',
+            executable='d455_camera_node',
+            name='d455_camera',
+            output='screen',
+            parameters=[{
+                'serial_no': LaunchConfiguration('camera_serial'),
+                'enable_color': True,
+                'enable_depth': True,
+                'color_width': 640,
+                'color_height': 480,
+                'color_fps': LaunchConfiguration('color_fps'),
+                'depth_width': 640,
+                'depth_height': 480,
+                'depth_fps': LaunchConfiguration('depth_fps'),
+                'color_frame_id': 'd455_color_optical_frame',
+                'depth_frame_id': 'd455_depth_optical_frame',
+                'use_hardware_time': True,
+            }],
         ),
     ])

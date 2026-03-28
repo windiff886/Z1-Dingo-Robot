@@ -1,0 +1,38 @@
+mobile_base_controller:
+  ros__parameters:
+    left_front_wheel: front_left_wheel
+    left_back_wheel: rear_left_wheel
+    right_front_wheel: front_right_wheel
+    right_back_wheel: rear_right_wheel
+    wheel_radius: 0.05
+    wheel_separation: 0.4208
+    axis_separation: 0.57
+    publish_rate: 50.0
+    cmd_vel_timeout: 0.25
+    base_frame_id: base_link
+    odom_frame_id: odom
+    enable_odom_tf: false
+    publish_limited_velocity: true
+    linear:
+      x:
+        has_velocity_limits: true
+        max_velocity: 1.3
+        min_velocity: -1.3
+        has_acceleration_limits: true
+        max_acceleration: 1.0
+        min_acceleration: -1.0
+      y:
+        has_velocity_limits: true
+        max_velocity: 1.3
+        min_velocity: -1.3
+        has_acceleration_limits: true
+        max_acceleration: 1.0
+        min_acceleration: -1.0
+    angular:
+      z:
+        has_velocity_limits: true
+        max_velocity: 4.0
+        min_velocity: -4.0
+        has_acceleration_limits: true
+        max_acceleration: 2.0
+        min_acceleration: -2.0

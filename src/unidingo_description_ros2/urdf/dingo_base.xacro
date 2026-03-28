@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
-<!--
-  Simplified Dingo base frame.
-  This provides the base_link and base_footprint for the Uni-Dingo robot.
-  In production, replace with official clearpath_common Dingo description.
-  Approximate dimensions: 0.52 x 0.38 x 0.15 m (Dingo-O omni platform)
--->
+<!-- Dingo omni base geometry for ROS2 simulation. -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
     <xacro:macro name="dingo_base">
+        <xacro:property name="wheelbase" value="0.570"/>
+        <xacro:property name="track" value="0.3708"/>
+        <xacro:property name="wheel_vertical_offset" value="0.035145"/>
+        <xacro:property name="wheel_radius" value="0.050"/>
+        <xacro:property name="wheel_width" value="0.050"/>
+        <xacro:property name="wheel_mass" value="0.4"/>
+
         <link name="base_footprint"/>
 
         <joint name="base_footprint_joint" type="fixed">
@@ -16,13 +18,21 @@
             <child link="base_link"/>
         </joint>
 
-        <link name="base_link">
+        <link name="base_link"/>
+
+        <joint name="base_link_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <parent link="base_link"/>
+            <child link="chassis_link"/>
+        </joint>
+
+        <link name="chassis_link">
             <inertial>
                 <origin xyz="0 0 0" rpy="0 0 0"/>
-                <mass value="15.0"/>
-                <inertia ixx="0.23" ixy="0" ixz="0"
-                         iyy="0.36" iyz="0"
-                         izz="0.52"/>
+                <mass value="14.0"/>
+                <inertia ixx="0.35498" ixy="0" ixz="0"
+                         iyy="0.7266" iyz="0"
+                         izz="1.0553"/>
             </inertial>
             <visual>
                 <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -41,11 +51,54 @@
             </collision>
         </link>
 
+        <xacro:macro name="dingo_wheel" params="joint_name link_name x y">
+            <link name="${link_name}">
+                <inertial>
+                    <origin xyz="0 0 0" rpy="0 0 0"/>
+                    <mass value="${wheel_mass}"/>
+                    <inertia ixx="0.0003234" ixy="0" ixz="0"
+                             iyy="0.0003234" iyz="0"
+                             izz="0.0004901"/>
+                </inertial>
+                <visual>
+                    <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
+                    <geometry>
+                        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+                    </geometry>
+                    <material name="wheel_black">
+                        <color rgba="0.1 0.1 0.1 1.0"/>
+                    </material>
+                </visual>
+                <collision>
+                    <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
+                    <geometry>
+                        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+                    </geometry>
+                </collision>
+            </link>
+
+            <joint name="${joint_name}" type="continuous">
+                <origin xyz="${x} ${y} ${wheel_vertical_offset}" rpy="0 0 0"/>
+                <parent link="chassis_link"/>
+                <child link="${link_name}"/>
+                <axis xyz="0 1 0"/>
+            </joint>
+        </xacro:macro>
+
+        <xacro:dingo_wheel joint_name="front_left_wheel" link_name="front_left_wheel_link"
+                           x="${wheelbase/2.0}" y="${track/2.0 + wheel_width/2.0}"/>
+        <xacro:dingo_wheel joint_name="front_right_wheel" link_name="front_right_wheel_link"
+                           x="${wheelbase/2.0}" y="${-track/2.0 - wheel_width/2.0}"/>
+        <xacro:dingo_wheel joint_name="rear_left_wheel" link_name="rear_left_wheel_link"
+                           x="${-wheelbase/2.0}" y="${track/2.0 + wheel_width/2.0}"/>
+        <xacro:dingo_wheel joint_name="rear_right_wheel" link_name="rear_right_wheel_link"
+                           x="${-wheelbase/2.0}" y="${-track/2.0 - wheel_width/2.0}"/>
+
         <!-- IMU frame (for sensor integration) -->
         <link name="imu_link"/>
         <joint name="imu_joint" type="fixed">
             <origin xyz="0 0 0.075" rpy="0 0 0"/>
-            <parent link="base_link"/>
+            <parent link="chassis_link"/>
             <child link="imu_link"/>
         </joint>
     </xacro:macro>

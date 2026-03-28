@@ -8,15 +8,21 @@
     <!-- Arguments -->
     <xacro:arg name="has_gripper" default="true"/>
     <xacro:arg name="pan_tilt" default="true"/>
-    <xacro:arg name="left_controller_ip" default="127.0.0.1"/>
-    <xacro:arg name="left_sdk_port" default="0"/>
-    <xacro:arg name="left_controller_port" default="8871"/>
-    <xacro:arg name="right_controller_ip" default="127.0.0.1"/>
-    <xacro:arg name="right_sdk_port" default="0"/>
-    <xacro:arg name="right_controller_port" default="8872"/>
+    <xacro:arg name="left_arm" default="true"/>
+    <xacro:arg name="right_arm" default="true"/>
+    <xacro:arg name="sim_gazebo" default="false"/>
+    <xacro:arg name="left_arm_ip" default="192.168.123.110"/>
+    <xacro:arg name="left_port_to_mcu" default="8881"/>
+    <xacro:arg name="left_port_to_sdk" default="8871"/>
+    <xacro:arg name="left_own_port" default="8872"/>
+    <xacro:arg name="right_arm_ip" default="192.168.123.111"/>
+    <xacro:arg name="right_port_to_mcu" default="8882"/>
+    <xacro:arg name="right_port_to_sdk" default="8873"/>
+    <xacro:arg name="right_own_port" default="8874"/>
 
     <!-- Include component descriptions -->
     <xacro:include filename="$(find unidingo_description)/urdf/dingo_base.xacro"/>
+    <xacro:include filename="$(find unidingo_description)/urdf/dingo_base.ros2_control.xacro"/>
     <xacro:include filename="$(find z1_description)/urdf/z1.urdf.xacro"/>
     <xacro:include filename="$(find z1_description)/urdf/z1.ros2_control.xacro"/>
     <xacro:include filename="$(find pan_tilt_description)/urdf/pan_tilt.urdf.xacro"/>
@@ -50,7 +56,23 @@
     <!-- ========== Dingo Base ========== -->
     <xacro:dingo_base/>
 
+    <xacro:if value="$(arg sim_gazebo)">
+        <xacro:dingo_base_ros2_control/>
+
+        <gazebo>
+            <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+                <parameters>$(find unidingo_description)/config/gazebo_simulation_controllers.yaml</parameters>
+                <parameters>$(find unidingo_description)/config/base_simulation_controllers.yaml</parameters>
+                <parameters>$(find unidingo_description)/config/arm_simulation_controllers.yaml</parameters>
+                <parameters>$(find unidingo_description)/config/pan_tilt_controllers.yaml</parameters>
+                <parameters>$(find unidingo_description)/config/gains_omni.yaml</parameters>
+                <parameters>$(find unidingo_description)/config/z1_gazebo_pid.yaml</parameters>
+            </plugin>
+        </gazebo>
+    </xacro:if>
+
     <!-- ========== Left Arm Support Pillar ========== -->
+    <xacro:if value="$(arg left_arm)">
     <link name="leftarm_link">
         <inertial>
             <origin xyz="0 0 ${-left_arm_support_length/2.0}" rpy="0 0 0"/>
@@ -83,6 +105,8 @@
     </joint>
 
     <!-- ========== Right Arm Support Pillar ========== -->
+    </xacro:if>
+    <xacro:if value="$(arg right_arm)">
     <link name="rightarm_link">
         <inertial>
             <origin xyz="0 0 ${-right_arm_support_length/2.0}" rpy="0 0 0"/>
@@ -113,26 +137,35 @@
         <parent link="base_link"/>
         <child link="rightarm_link"/>
     </joint>
+    </xacro:if>
 
     <!-- ========== Left Z1 Arm ========== -->
+    <xacro:if value="$(arg left_arm)">
     <xacro:z1_arm prefix="left_" parent="leftarm_link" xyz="0 0 0" rpy="0 0 0"
                   has_gripper="$(arg has_gripper)"/>
 
     <xacro:z1_ros2_control prefix="left_"
-                           controller_ip="$(arg left_controller_ip)"
-                           sdk_port="$(arg left_sdk_port)"
-                           controller_port="$(arg left_controller_port)"
+                           mcu_ip="$(arg left_arm_ip)"
+                           port_to_mcu="$(arg left_port_to_mcu)"
+                           port_to_sdk="$(arg left_port_to_sdk)"
+                           own_port="$(arg left_own_port)"
+                           sim_gazebo="$(arg sim_gazebo)"
                            has_gripper="$(arg has_gripper)"/>
+    </xacro:if>
 
     <!-- ========== Right Z1 Arm ========== -->
+    <xacro:if value="$(arg right_arm)">
     <xacro:z1_arm prefix="right_" parent="rightarm_link" xyz="0 0 0" rpy="0 0 0"
                   has_gripper="$(arg has_gripper)"/>
 
     <xacro:z1_ros2_control prefix="right_"
-                           controller_ip="$(arg right_controller_ip)"
-                           sdk_port="$(arg right_sdk_port)"
-                           controller_port="$(arg right_controller_port)"
+                           mcu_ip="$(arg right_arm_ip)"
+                           port_to_mcu="$(arg right_port_to_mcu)"
+                           port_to_sdk="$(arg right_port_to_sdk)"
+                           own_port="$(arg right_own_port)"
+                           sim_gazebo="$(arg sim_gazebo)"
                            has_gripper="$(arg has_gripper)"/>
+    </xacro:if>
 
     <!-- ========== Pan-Tilt Head ========== -->
     <xacro:if value="$(arg pan_tilt)">
@@ -172,6 +205,25 @@
         <xacro:pan_tilt parent="pan_tilt_mount_link">
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </xacro:pan_tilt>
+
+        <xacro:if value="$(arg sim_gazebo)">
+            <ros2_control name="pan_tilt_system" type="system">
+                <hardware>
+                    <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+                </hardware>
+
+                <joint name="pan_tilt_yaw_joint">
+                    <command_interface name="position"/>
+                    <state_interface name="position"/>
+                    <state_interface name="velocity"/>
+                </joint>
+                <joint name="pan_tilt_pitch_joint">
+                    <command_interface name="position"/>
+                    <state_interface name="position"/>
+                    <state_interface name="velocity"/>
+                </joint>
+            </ros2_control>
+        </xacro:if>
 
         <!-- Camera support on top of pan-tilt -->
         <xacro:property name="camera_mount_z" value="0.1"/>

@@ -7,13 +7,9 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            'port_name',
+            'pan_tilt_port',
             default_value='/dev/pan_tilt',
             description='Serial port for the pan-tilt device'),
-        DeclareLaunchArgument(
-            'id',
-            default_value='1',
-            description='Modbus device ID'),
 
         Node(
             package='pan_tilt_driver',
@@ -21,9 +17,9 @@ def generate_launch_description():
             name='pan_tilt_driver',
             output='screen',
             parameters=[{
-                'port_name': LaunchConfiguration('port_name'),
-                'yaw_joint_name': 'iqr_pan_tilt_yaw_joint',
-                'pitch_joint_name': 'iqr_pan_tilt_pitch_joint',
+                'port_name': LaunchConfiguration('pan_tilt_port'),
+                'yaw_joint_name': 'pan_tilt_yaw_joint',
+                'pitch_joint_name': 'pan_tilt_pitch_joint',
             }],
         ),
     ])

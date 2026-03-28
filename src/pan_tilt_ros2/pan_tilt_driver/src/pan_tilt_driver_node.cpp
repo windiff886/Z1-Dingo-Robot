@@ -45,8 +45,8 @@ public:
     // Declare and get parameters
     this->declare_parameter("ID", 0x01);
     this->declare_parameter("port_name", std::string("/dev/ttyUSB0"));
-    this->declare_parameter("yaw_joint_name", std::string("iqr_pan_tilt_yaw_joint"));
-    this->declare_parameter("pitch_joint_name", std::string("iqr_pan_tilt_pitch_joint"));
+    this->declare_parameter("yaw_joint_name", std::string("pan_tilt_yaw_joint"));
+    this->declare_parameter("pitch_joint_name", std::string("pan_tilt_pitch_joint"));
 
     id_ = this->get_parameter("ID").as_int();
     port_name_ = this->get_parameter("port_name").as_string();

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(pan_tilt_description)
 find_package(ament_cmake REQUIRED)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(DIRECTORY rviz/ DESTINATION share/${PROJECT_NAME}/rviz)
 install(DIRECTORY urdf/ DESTINATION share/${PROJECT_NAME}/urdf)
 install(DIRECTORY meshes/ DESTINATION share/${PROJECT_NAME}/meshes)
 ament_package()

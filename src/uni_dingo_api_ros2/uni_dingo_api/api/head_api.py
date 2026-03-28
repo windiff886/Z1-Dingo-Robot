@@ -125,7 +125,7 @@ class HeadAPI:
 
         return future
 
-    def look_at(self, point: PointStamped) -> ActionFuture:
+    def look_at(self, point: PointStamped, frame: str = 'base_link') -> ActionFuture:
         if not self._enabled:
             return ActionFuture.failure('Head disabled')
 
@@ -178,6 +178,9 @@ class HeadAPI:
             'pan_min': self._pan_min, 'pan_max': self._pan_max,
             'tilt_min': self._tilt_min, 'tilt_max': self._tilt_max,
         }
+
+    def is_moving(self) -> bool:
+        return False
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled

@@ -1,10 +1,9 @@
-"""Launch file for displaying the Uni-Dingo robot in RViz2."""
+"""Backward-compatible display entrypoint for the Uni-Dingo robot."""
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import (
-    Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution,
-)
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -12,43 +11,29 @@ def generate_launch_description():
     declared_args = [
         DeclareLaunchArgument('has_gripper', default_value='true'),
         DeclareLaunchArgument('pan_tilt', default_value='true'),
+        DeclareLaunchArgument('gui', default_value='true'),
+        DeclareLaunchArgument('use_rviz', default_value='true'),
+        DeclareLaunchArgument(
+            'rviz_config',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('unidingo_description'), 'rviz', 'dual_arm.rviz'
+            ]),
+        ),
     ]
 
-    robot_description_content = Command([
-        PathJoinSubstitution([FindExecutable(name='xacro')]),
-        ' ',
-        PathJoinSubstitution([
-            FindPackageShare('unidingo_description'), 'urdf', 'uni_dingo_dual_arm.urdf.xacro'
-        ]),
-        ' has_gripper:=', LaunchConfiguration('has_gripper'),
-        ' pan_tilt:=', LaunchConfiguration('pan_tilt'),
-    ])
-
-    robot_description = {'robot_description': robot_description_content}
-
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        output='screen',
-        parameters=[robot_description],
+    display_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('unidingo_description'),
+            'launch',
+            'dual_arm_display.launch.py',
+        ])),
+        launch_arguments={
+            'has_gripper': LaunchConfiguration('has_gripper'),
+            'pan_tilt': LaunchConfiguration('pan_tilt'),
+            'gui': LaunchConfiguration('gui'),
+            'use_rviz': LaunchConfiguration('use_rviz'),
+            'rviz_config': LaunchConfiguration('rviz_config'),
+        }.items(),
     )
 
-    joint_state_publisher_gui = Node(
-        package='joint_state_publisher_gui',
-        executable='joint_state_publisher_gui',
-        output='screen',
-    )
-
-    rviz2 = Node(
-        package='rviz2',
-        executable='rviz2',
-        output='screen',
-    )
-
-    return LaunchDescription(
-        declared_args + [
-            robot_state_publisher,
-            joint_state_publisher_gui,
-            rviz2,
-        ]
-    )
+    return LaunchDescription(declared_args + [display_launch])

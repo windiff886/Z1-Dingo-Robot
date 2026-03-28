@@ -58,10 +58,16 @@ private:
   double gripper_effort_{0.0};
   double gripper_command_{0.0};
 
+  // Gripper SDK 写入参数（与 ROS1 z1_hw 对齐）
+  double gripper_max_tau_{10.0};   // 抓取最大力矩 (N·m)，SDK 默认值为 10
+  double gripper_epsilon_{0.01};   // 抓取角度容差 (rad)，与 ROS1 默认值一致
+
   bool has_gripper_{true};
-  std::string controller_ip_;
-  int sdk_port_{0};
-  int controller_port_{8871};
+  std::string mcu_ip_{"192.168.123.110"};
+  int port_to_mcu_{8881};
+  int port_to_sdk_{8871};
+  std::string controller_ip_{"127.0.0.1"};
+  int own_port_{8872};
 
   rclcpp::Logger logger_{rclcpp::get_logger("Z1System")};
 };

@@ -58,6 +58,7 @@ class BaseAPI:
         self._cmd_vel_pub.publish(Twist())
 
     def move_to(self, x: float, y: float, theta: float,
+                frame: str = 'odom',
                 linear_tolerance: float = 0.05,
                 angular_tolerance: float = 0.1) -> ActionFuture:
         if not self._enabled or self._emergency_stopped:
@@ -146,6 +147,12 @@ class BaseAPI:
     def recover(self) -> bool:
         self._emergency_stopped = False
         return True
+
+    def get_topics(self) -> dict:
+        return {
+            'cmd_vel': self._cmd_vel_topic,
+            'odom': self._odom_topic,
+        }
 
     @staticmethod
     def _clamp(value: float, min_val: float, max_val: float) -> float:

@@ -41,6 +41,7 @@ class PerceptionAPI:
             self._camera_info_topic = self._config.get('camera_info_topic', '/d455/color/camera_info')
 
         self._camera_frame = self._config.get('camera_frame', 'camera_link')
+        self._optical_frame = self._config.get('optical_frame', 'camera_color_optical_frame')
 
         self._latest_rgb = None
         self._latest_depth = None

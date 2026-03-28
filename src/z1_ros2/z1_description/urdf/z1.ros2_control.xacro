@@ -3,20 +3,37 @@
 
     <!--
       ros2_control hardware interface macro for Z1 arm.
-      @param prefix  Joint name prefix (e.g. "left_" or "right_")
-      @param controller_ip  IP address of z1_controller
-      @param sdk_port  Local UDP port (0 = auto)
-      @param controller_port  Remote UDP port of z1_controller
-      @param has_gripper  Whether this arm has a gripper
+
+      Z1System 保留 ROS1 风格的完整网络参数面。
+      其中 controller_ip / own_port / port_to_sdk 仍用于与 z1_ctrl_ros2 通信，
+      同时继续保留 mcu_ip / port_to_mcu 以保持与 ROS1 配置链严格一致。
+
+      @param mcu_ip        Arm MCU IP address
+      @param port_to_mcu   UDP port used for MCU communication
+      @param prefix        Joint name prefix (e.g. "left_" or "right_")
+      @param port_to_sdk   UDP port z1_ctrl_ros2 listens on for SDK commands
+      @param controller_ip IP address of z1_ctrl_ros2 (default: 127.0.0.1)
+      @param own_port      Local UDP port Z1System listens on for ArmState replies
+      @param has_gripper   Whether this arm has a gripper
+      @param sim_gazebo    Whether to use GazeboSystem instead of real hardware
     -->
-    <xacro:macro name="z1_ros2_control" params="prefix:='' controller_ip:='127.0.0.1' sdk_port:=0 controller_port:=8871 has_gripper:=true">
+    <xacro:macro name="z1_ros2_control" params="prefix:='' mcu_ip:='192.168.123.110' port_to_mcu:=8881 port_to_sdk:=8871 controller_ip:='127.0.0.1' own_port:=8872 has_gripper:=true sim_gazebo:=false gripper_max_tau:=10.0 gripper_epsilon:=0.01">
         <ros2_control name="${prefix}z1_system" type="system">
             <hardware>
-                <plugin>z1_hardware/Z1System</plugin>
-                <param name="controller_ip">${controller_ip}</param>
-                <param name="sdk_port">${sdk_port}</param>
-                <param name="controller_port">${controller_port}</param>
-                <param name="has_gripper">${has_gripper}</param>
+                <xacro:if value="${sim_gazebo}">
+                    <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+                </xacro:if>
+                <xacro:unless value="${sim_gazebo}">
+                    <plugin>z1_hardware/Z1System</plugin>
+                    <param name="mcu_ip">${mcu_ip}</param>
+                    <param name="port_to_mcu">${port_to_mcu}</param>
+                    <param name="port_to_sdk">${port_to_sdk}</param>
+                    <param name="controller_ip">${controller_ip}</param>
+                    <param name="own_port">${own_port}</param>
+                    <param name="has_gripper">${has_gripper}</param>
+                    <param name="gripper_max_tau">${gripper_max_tau}</param>
+                    <param name="gripper_epsilon">${gripper_epsilon}</param>
+                </xacro:unless>
             </hardware>
 
             <joint name="${prefix}joint1">

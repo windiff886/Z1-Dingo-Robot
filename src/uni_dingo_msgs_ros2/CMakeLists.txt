@@ -19,6 +19,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/HeadState.msg"
   "msg/GripperState.msg"
   "msg/SubsystemStatus.msg"
+  "msg/MotorCmd.msg"
+  "msg/MotorState.msg"
   "srv/GetRobotState.srv"
   "srv/SetEnabled.srv"
   "srv/EmergencyStop.srv"

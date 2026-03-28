@@ -1,0 +1,32 @@
+planner_configs:
+  AnytimePathShortening:
+    type: geometric::AnytimePathShortening
+    shortcut: true
+    hybridize: true
+    max_hybrid_paths: 24
+    num_planners: 4
+    planners: ""
+  RRTConnect:
+    type: geometric::RRTConnect
+    range: 0.0
+  RRTstar:
+    type: geometric::RRTstar
+    range: 0.0
+    goal_bias: 0.05
+    delay_collision_checking: 1
+
+left_arm_manipulator:
+  planner_configs:
+    - AnytimePathShortening
+    - RRTConnect
+    - RRTstar
+  projection_evaluator: joints(left_joint1,left_joint2)
+  longest_valid_segment_fraction: 0.005
+
+right_arm_manipulator:
+  planner_configs:
+    - AnytimePathShortening
+    - RRTConnect
+    - RRTstar
+  projection_evaluator: joints(right_joint1,right_joint2)
+  longest_valid_segment_fraction: 0.005

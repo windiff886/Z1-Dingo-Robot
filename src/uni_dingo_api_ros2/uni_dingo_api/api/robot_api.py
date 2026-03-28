@@ -50,6 +50,14 @@ class RobotAPI:
             **subsystems.get('left_arm', {}),
             **motion_config,
             'named_poses': named_poses,
+            'right_planning_group': subsystems.get('right_arm', {}).get(
+                'planning_group', 'right_arm_manipulator'),
+            'right_end_effector_link': subsystems.get('right_arm', {}).get(
+                'end_effector_link', 'right_link06'),
+            'right_joint_names': subsystems.get('right_arm', {}).get(
+                'joint_names', [f'right_joint{i}' for i in range(1, 7)]),
+            'right_trajectory_controller': subsystems.get('right_arm', {}).get(
+                'trajectory_controller', 'right_arm_controller'),
         }
 
         self._emergency_stopped = False
@@ -113,15 +121,37 @@ class RobotAPI:
             self._node.get_logger().warn(f'Config not found: {config_path}, using defaults')
             return {}
 
+    @staticmethod
+    def _stamp_to_seconds(stamp) -> float:
+        if stamp is None:
+            return 0.0
+
+        if hasattr(stamp, 'to_sec') and callable(stamp.to_sec):
+            return float(stamp.to_sec())
+
+        if hasattr(stamp, 'sec') and hasattr(stamp, 'nanosec'):
+            return float(stamp.sec) + float(stamp.nanosec) / 1e9
+
+        if hasattr(stamp, 'nanoseconds'):
+            return float(stamp.nanoseconds) / 1e9
+
+        return 0.0
+
     def get_state(self) -> Dict[str, Any]:
+        query_time = 0.0
+        if hasattr(self, '_node') and hasattr(self._node, 'get_clock'):
+            query_time = self._stamp_to_seconds(self._node.get_clock().now())
+
         state = {
             'mode': self._mode,
             'emergency_stopped': self._emergency_stopped,
+            'timestamp': query_time,
         }
 
         if self.base:
             pose = self.base.get_pose_2d()
             vel = self.base.get_velocity()
+            odom = self.base.get_odom() if hasattr(self.base, 'get_odom') else None
             state['base'] = {
                 'enabled': self.base.is_enabled(),
                 'moving': self.base.is_moving(),
@@ -130,32 +160,79 @@ class RobotAPI:
                     'linear_x': vel.linear.x, 'linear_y': vel.linear.y,
                     'angular_z': vel.angular.z,
                 } if vel else None,
+                'timestamp': self._stamp_to_seconds(
+                    odom.header.stamp if odom and hasattr(odom, 'header') else None
+                ),
             }
 
         for side in ['left', 'right']:
             arm = getattr(self, f'{side}_arm', None)
             if arm:
                 joints = arm.get_joint_states()
+                ee_pose = arm.get_end_effector_pose()
                 state[f'{side}_arm'] = {
                     'enabled': arm.is_enabled(),
                     'moving': arm.is_moving(),
                     'joint_positions': joints.get('positions') if joints else None,
+                    'end_effector_pose': {
+                        'position': {
+                            'x': ee_pose.position.x,
+                            'y': ee_pose.position.y,
+                            'z': ee_pose.position.z,
+                        },
+                        'orientation': {
+                            'x': ee_pose.orientation.x,
+                            'y': ee_pose.orientation.y,
+                            'z': ee_pose.orientation.z,
+                            'w': ee_pose.orientation.w,
+                        },
+                    } if ee_pose else None,
+                    'timestamp': joints.get('timestamp', 0.0) if joints else 0.0,
                 }
 
         if self.head:
             pan, tilt = self.head.get_angles()
+            head_status = self.head.get_status() if hasattr(self.head, 'get_status') else None
+            pan_deg, tilt_deg = self.head.get_angles_deg()
             state['head'] = {
                 'enabled': self.head.is_enabled(),
                 'pan': pan, 'tilt': tilt,
+                'pan_deg': pan_deg,
+                'tilt_deg': tilt_deg,
+                'timestamp': self._stamp_to_seconds(
+                    head_status.header.stamp
+                    if head_status and hasattr(head_status, 'header') else None
+                ),
             }
 
         if self.perception:
+            latest_rgb = getattr(self.perception, '_latest_rgb', None)
             state['perception'] = {
                 'enabled': self.perception.is_enabled(),
                 'has_data': self.perception.has_data(),
+                'topics': self.perception.get_topics(),
+                'timestamp': self._stamp_to_seconds(
+                    latest_rgb.header.stamp
+                    if latest_rgb and hasattr(latest_rgb, 'header') else None
+                ),
             }
 
         return state
+
+    def is_ready(self) -> bool:
+        if self._emergency_stopped:
+            return False
+
+        if getattr(self, 'base', None) and not self.base.is_enabled():
+            return False
+
+        if getattr(self, 'left_arm', None) and not self.left_arm.is_enabled():
+            return False
+
+        if getattr(self, 'right_arm', None) and not self.right_arm.is_enabled():
+            return False
+
+        return True
 
     def emergency_stop(self) -> None:
         self._emergency_stopped = True
@@ -203,6 +280,53 @@ class RobotAPI:
             self.right_arm.stop()
         if self.head:
             self.head.stop()
+
+    def whole_body_move(self, base_goal=None, left_arm_goal=None,
+                        right_arm_goal=None) -> ActionFuture:
+        if self._emergency_stopped:
+            return ActionFuture.failure('Emergency stopped')
+
+        future = ActionFuture()
+
+        def execute():
+            success = True
+            errors = []
+
+            if base_goal and self.base:
+                x, y, theta = base_goal
+                base_future = self.base.move_to(x, y, theta)
+                base_future.wait()
+                if not base_future.is_success():
+                    success = False
+                    if base_future.get_error():
+                        errors.append(base_future.get_error())
+
+            arm_futures = []
+
+            if left_arm_goal is not None and self.left_arm:
+                if isinstance(left_arm_goal, (list, tuple)):
+                    arm_futures.append(self.left_arm.move_to_joint(list(left_arm_goal)))
+                else:
+                    arm_futures.append(self.left_arm.move_to_pose(left_arm_goal))
+
+            if right_arm_goal is not None and self.right_arm:
+                if isinstance(right_arm_goal, (list, tuple)):
+                    arm_futures.append(self.right_arm.move_to_joint(list(right_arm_goal)))
+                else:
+                    arm_futures.append(self.right_arm.move_to_pose(right_arm_goal))
+
+            for arm_future in arm_futures:
+                arm_future.wait()
+                if not arm_future.is_success():
+                    success = False
+                    if arm_future.get_error():
+                        errors.append(arm_future.get_error())
+
+            future._complete(success, error_msg='; '.join(errors))
+
+        import threading
+        threading.Thread(target=execute, daemon=True).start()
+        return future
 
     @property
     def mode(self) -> str:

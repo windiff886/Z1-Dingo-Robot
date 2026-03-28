@@ -13,6 +13,7 @@ from rclpy.action import ActionClient
 from geometry_msgs.msg import Pose, PoseStamped
 from sensor_msgs.msg import JointState
 from control_msgs.action import GripperCommand
+import tf2_ros
 
 from .action_future import ActionFuture
 
@@ -31,16 +32,23 @@ class ArmAPI:
         self._moveit_initialized = False
 
         self._planning_groups = {
-            'left': 'left_arm_manipulator',
-            'right': 'right_arm_manipulator',
+            'left': self._config.get('planning_group', 'left_arm_manipulator'),
+            'right': self._config.get('right_planning_group', 'right_arm_manipulator'),
         }
         self._ee_links = {
-            'left': 'left_link06',
-            'right': 'right_link06',
+            'left': self._config.get('end_effector_link', 'left_link06'),
+            'right': self._config.get('right_end_effector_link', 'right_link06'),
         }
         self._joint_names = {
-            'left': [f'left_joint{i}' for i in range(1, 7)],
-            'right': [f'right_joint{i}' for i in range(1, 7)],
+            'left': self._config.get('joint_names', [f'left_joint{i}' for i in range(1, 7)]),
+            'right': self._config.get(
+                'right_joint_names', [f'right_joint{i}' for i in range(1, 7)]),
+        }
+        self._controllers = {
+            'left': self._config.get('trajectory_controller',
+                                     'left_arm/left_z1_joint_traj_controller'),
+            'right': self._config.get('right_trajectory_controller',
+                                      'right_arm/right_z1_joint_traj_controller'),
         }
 
         self._named_poses = config.get('named_poses', {}) if config else {}
@@ -50,20 +58,36 @@ class ArmAPI:
         self._joint_state_sub = node.create_subscription(
             JointState, '/joint_states', self._joint_state_callback, 10)
 
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, node)
+
         # Gripper action clients (ROS2 action)
+        # topic 名与 ROS1 对齐: /left_arm/left_gripper_controller/gripper_cmd
         self._gripper_clients = {}
         if side in ['left', 'both']:
             self._gripper_clients['left'] = ActionClient(
-                node, GripperCommand, '/left_gripper_controller/gripper_cmd')
+                node, GripperCommand, '/left_arm/left_gripper_controller/gripper_cmd')
         if side in ['right', 'both']:
             self._gripper_clients['right'] = ActionClient(
-                node, GripperCommand, '/right_gripper_controller/gripper_cmd')
+                node, GripperCommand, '/right_arm/right_gripper_controller/gripper_cmd')
 
         self._velocity_scaling = config.get('default_velocity_scaling', 0.3) if config else 0.3
         self._acceleration_scaling = config.get('default_acceleration_scaling', 0.3) if config else 0.3
         self._planning_time = config.get('planning_time', 5.0) if config else 5.0
 
         node.get_logger().info(f'ArmAPI initialized for {side} arm(s) in {mode} mode')
+
+    def _controllers_for_side(self, side: str) -> List[str]:
+        if side == 'both':
+            return [
+                controller for controller in [
+                    self._controllers.get('left'),
+                    self._controllers.get('right'),
+                ] if controller
+            ]
+
+        controller = self._controllers.get(side)
+        return [controller] if controller else []
 
     def _joint_state_callback(self, msg: JointState):
         with self._joint_state_lock:
@@ -127,7 +151,10 @@ class ArmAPI:
                 plan_result = mg.plan()
                 if plan_result:
                     robot = self._moveit.get_robot_model()
-                    success = self._moveit.execute(plan_result.trajectory, controllers=[])
+                    success = self._moveit.execute(
+                        plan_result.trajectory,
+                        controllers=self._controllers_for_side(side),
+                    )
                     future._complete(success)
                 else:
                     future._complete(False, error_msg='Motion planning failed')
@@ -169,7 +196,10 @@ class ArmAPI:
 
                 plan_result = mg.plan()
                 if plan_result:
-                    success = self._moveit.execute(plan_result.trajectory, controllers=[])
+                    success = self._moveit.execute(
+                        plan_result.trajectory,
+                        controllers=self._controllers_for_side(side),
+                    )
                     future._complete(success)
                 else:
                     future._complete(False, error_msg='Joint motion planning failed')
@@ -201,7 +231,10 @@ class ArmAPI:
                 mg.set_goal_state(configuration_name=name)
                 plan_result = mg.plan()
                 if plan_result:
-                    success = self._moveit.execute(plan_result.trajectory, controllers=[])
+                    success = self._moveit.execute(
+                        plan_result.trajectory,
+                        controllers=self._controllers_for_side(side),
+                    )
                     future._complete(success)
                 else:
                     future._complete(False, error_msg=f'Failed to plan to {name}')
@@ -225,7 +258,9 @@ class ArmAPI:
                 plan_result = mg.plan()
                 if plan_result:
                     results[side_key] = self._moveit.execute(
-                        plan_result.trajectory, controllers=[])
+                        plan_result.trajectory,
+                        controllers=self._controllers_for_side(side_key),
+                    )
                 else:
                     results[side_key] = False
 
@@ -241,8 +276,56 @@ class ArmAPI:
         threading.Thread(target=execute, daemon=True).start()
         return future
 
+    def move_both(self, left_pose: Pose, right_pose: Pose,
+                  frame: str = 'base_link') -> ActionFuture:
+        if self._side != 'both':
+            return ActionFuture.failure('Dual-arm mode required')
+
+        if not self._enabled:
+            return ActionFuture.failure('Arms disabled')
+
+        future = ActionFuture()
+
+        def execute():
+            left_future = self.move_to_pose(left_pose, frame=frame, side='left')
+            right_future = self.move_to_pose(right_pose, frame=frame, side='right')
+
+            left_future.wait()
+            right_future.wait()
+
+            success = left_future.is_success() and right_future.is_success()
+            errors = [msg for msg in [
+                left_future.get_error(),
+                right_future.get_error(),
+            ] if msg]
+
+            future._complete(
+                success,
+                result={
+                    'left': left_future.get_result(),
+                    'right': right_future.get_result(),
+                },
+                error_msg='; '.join(errors),
+            )
+
+        threading.Thread(target=execute, daemon=True).start()
+        return future
+
     def stop(self, side: str = None) -> None:
-        pass  # MoveIt2 stop requires trajectory cancellation
+        side = side or self._side
+
+        if not self._moveit_initialized:
+            return
+
+        if side == 'both':
+            for move_group in self._move_groups.values():
+                if hasattr(move_group, 'stop'):
+                    move_group.stop()
+            return
+
+        move_group = self._move_groups.get(side)
+        if move_group and hasattr(move_group, 'stop'):
+            move_group.stop()
 
     # Gripper control
 
@@ -318,7 +401,8 @@ class ArmAPI:
                 return None
 
             joint_names = self._joint_names.get(side, [])
-            result = {'names': [], 'positions': [], 'velocities': [], 'efforts': []}
+            result = {'names': [], 'positions': [], 'velocities': [], 'efforts': [],
+                      'timestamp': 0.0}
 
             for name in joint_names:
                 if name in self._current_joint_state.name:
@@ -329,7 +413,41 @@ class ArmAPI:
                         result['velocities'].append(self._current_joint_state.velocity[idx])
                     if idx < len(self._current_joint_state.effort):
                         result['efforts'].append(self._current_joint_state.effort[idx])
+
+            stamp = self._current_joint_state.header.stamp
+            result['timestamp'] = float(stamp.sec) + float(stamp.nanosec) / 1e9
             return result
+
+    def get_end_effector_pose(self, side: str = None,
+                              frame: str = 'base_link') -> Optional[Pose]:
+        side = side or self._side
+        if side == 'both':
+            return {
+                'left': self.get_end_effector_pose('left', frame),
+                'right': self.get_end_effector_pose('right', frame),
+            }
+
+        ee_link = self._ee_links.get(side)
+        if not ee_link:
+            return None
+
+        try:
+            from rclpy.time import Time
+
+            transform = self._tf_buffer.lookup_transform(frame, ee_link, Time())
+            pose = Pose()
+            pose.position.x = transform.transform.translation.x
+            pose.position.y = transform.transform.translation.y
+            pose.position.z = transform.transform.translation.z
+            pose.orientation.x = transform.transform.rotation.x
+            pose.orientation.y = transform.transform.rotation.y
+            pose.orientation.z = transform.transform.rotation.z
+            pose.orientation.w = transform.transform.rotation.w
+            return pose
+        except Exception as exc:
+            self._node.get_logger().warn(
+                f'Failed to get {side} end-effector pose in {frame}: {exc}')
+            return None
 
     def is_moving(self, side: str = None) -> bool:
         states = self.get_joint_states(side)
