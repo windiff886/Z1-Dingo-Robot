@@ -1,8 +1,0 @@
-# SetEnabled.srv
-# Enable or disable a subsystem
-
-string subsystem      # "base", "left_arm", "right_arm", "head", "all"
-bool enabled
----
-bool success
-string message

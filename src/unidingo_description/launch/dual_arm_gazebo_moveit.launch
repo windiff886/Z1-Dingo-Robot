@@ -20,6 +20,7 @@
 
   <!-- Uni-Dingo parameters -->
   <arg name="UnitreeGripper" default="true" />
+  <arg name="PanTilt" default="true" doc="Enable Pan-Tilt head in URDF" />
   <arg name="moveit" default="true" />
   <arg name="rviz" default="true" />
   <arg name="auto_safe_pose" default="true" />
@@ -42,7 +43,8 @@
          command="$(find dingo_description)/scripts/env_run
                   $(find dingo_description)/urdf/configs/$(arg config)
                   $(find xacro)/xacro --inorder $(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro
-                  UnitreeGripper:=$(arg UnitreeGripper)" />
+                  UnitreeGripper:=$(arg UnitreeGripper)
+                  PanTilt:=$(arg PanTilt)" />
 
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
 

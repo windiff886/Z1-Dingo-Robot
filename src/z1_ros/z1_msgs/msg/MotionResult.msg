@@ -1,0 +1,10 @@
+uint8 ACCEPTED=0
+uint8 SUCCEEDED=1
+uint8 REJECTED=2
+uint8 CANCELED=3
+uint8 STOPPED=4
+uint8 FAILED=5
+std_msgs/Header header
+uint64 command_id
+uint8 outcome
+string reason

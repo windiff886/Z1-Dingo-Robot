@@ -1,0 +1,11 @@
+uint8 ENABLE=0
+uint8 DISABLE=1
+uint8 STOP=2
+uint8 RESUME=3
+uint8 JOINT_STREAM=4
+uint8 POSE_STREAM=5
+uint8 IMPEDANCE=6
+uint8 HOLD=7
+std_msgs/Header header
+uint64 command_id
+uint8 operation

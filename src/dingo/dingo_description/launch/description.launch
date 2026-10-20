@@ -1,10 +1,6 @@
 <launch>
-  <arg name="config" default="$(optenv DINGO_CONFIG base)" />
+  <arg name="dingo_omni" default="$(optenv DINGO_OMNI 1)" doc="Omnidirectional base (1) or differential (0)" />
 
   <param name="robot_description"
-         command="$(find dingo_description)/scripts/env_run
-                  $(find dingo_description)/urdf/configs/$(arg config)
-                  $(find xacro)/xacro $(find dingo_description)/urdf/dingo.urdf.xacro" />
-
-  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+         command="$(find xacro)/xacro '$(find dingo_description)/urdf/dingo.urdf.xacro' dingo_omni:=$(arg dingo_omni)" />
 </launch>

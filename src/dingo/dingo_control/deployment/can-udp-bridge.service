@@ -1,0 +1,44 @@
+# Clearpath Dingo CAN/UDP Bridge Systemd Service Template
+#
+# Requirements:
+#   - socat (package: socat)
+#   - can-utils (package: can-utils, provides slcand)
+#   - iproute2 (provides ip), util-linux (provides flock)
+#
+# Configuration & Hardware Premise:
+#   - Robot MCU UDP address: 192.168.131.2:11412
+#   - Host UDP listening port: 11412; allowed peer subnet: 192.168.131.1/24
+#     Configure the host network address separately; the script does not set it.
+#   - Virtual serial device link: /dev/ttycan0
+#   - Virtual CAN interface: vcan0 (speed s8 = 1Mbps, txqueuelen 100)
+#
+# Deployment Instructions:
+#   1. Copy the script to standard binary location:
+#      sudo cp <workspace>/src/dingo/dingo_control/scripts/can-udp-bridge.sh /usr/local/bin/can-udp-bridge.sh
+#      sudo chmod +x /usr/local/bin/can-udp-bridge.sh
+#   2. Copy this service file to systemd directory:
+#      sudo cp <workspace>/src/dingo/dingo_control/deployment/can-udp-bridge.service /etc/systemd/system/can-udp-bridge.service
+#   3. Confirm an existing bridge is not already managing ttycan0/vcan0.
+#      Then reload systemd daemon and enable this service:
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now can-udp-bridge.service
+#   4. Check service status:
+#      systemctl status can-udp-bridge.service
+#      ip link show vcan0
+
+[Unit]
+Description=Bridge UDP packets to vcan0 device for Clearpath Dingo
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=on-failure
+RestartSec=2
+Type=simple
+ExecStart=/usr/local/bin/can-udp-bridge.sh
+KillMode=control-group
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
+

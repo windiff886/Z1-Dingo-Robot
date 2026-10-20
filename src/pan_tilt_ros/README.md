@@ -10,9 +10,9 @@ IQR第四代云台ROS驱动，[在线手册](http://doc.iquotient-robotics.com/p
 ```shell
 sudo apt-get update
 ```
-安装依赖项
+安装依赖项（串口驱动依赖 ROS serial 包）
 ```shell
-sudo apt-get install ros-melodic-joy
+sudo apt-get install ros-melodic-serial
 ```
 创建ROS工作空间
 ```shell
@@ -39,21 +39,29 @@ sudo cp ./56-pan-tilt.rules /etc/udev/rules.d/
 
 ## 使用
 首先，连接好云台的电源和USB通信端口。
-### 1.普通模式
+
+### 驱动启动与位置控制
 启动驱动节点
 ```shell
 roslaunch pan_tilt_bringup panTilt_view.launch
 ```
-发送位置消息
+可通过 ROS 话题命令直接控制云台。
+
+发送度制位置消息（speed 需为整数，单位 deg/s，范围 1~30）：
 ```shell
 rostopic pub /pan_tilt_cmd_deg pan_tilt_msgs/PanTiltCmdDeg "yaw: 0.0
 pitch: 0.0
 speed: 10" 
 ```
 
-### 2.手柄控制模式
-连接好手柄，然后启动驱动节点
+发送弧度制位置消息（单位 rad，范围约 ±1.047 rad；速度单位 rad/s，范围 0.0175~0.5236）：
 ```shell
-roslaunch pan_tilt_bringup panTilt_view.launch use_joy:=true
+rostopic pub /pan_tilt_cmd_rad pan_tilt_msgs/PanTiltCmdRad "yaw: 0.0
+pitch: 0.0
+speed: 0.2"
 ```
-使用手柄上的 *X* *Y* *A* *B*按键来控制云台的俯仰和旋转。
+
+### 状态反馈话题
+- `/pan_tilt_status` (`pan_tilt_msgs/PanTiltStatus`): 驱动状态、目标与当前角度（度）
+- `/joint_states` (`sensor_msgs/JointState`): 云台关节状态（弧度，包含 `pan_tilt_yaw_joint` 与 `pan_tilt_pitch_joint`）
+

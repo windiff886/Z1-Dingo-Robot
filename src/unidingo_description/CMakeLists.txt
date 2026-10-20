@@ -12,3 +12,9 @@ foreach(dir config launch meshes urdf)
 	install(DIRECTORY ${dir}/
 		DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/${dir})
 endforeach(dir)
+
+catkin_install_python(PROGRAMS
+	scripts/set_dual_arm_safe_pose.py
+	DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+

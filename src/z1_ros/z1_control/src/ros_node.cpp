@@ -1,0 +1,365 @@
+#include "z1_control/runtime.hpp"
+#include <XmlRpcValue.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <ros/ros.h>
+#include <sensor_msgs/JointState.h>
+#include <set>
+#include <stdexcept>
+#include <z1_msgs/ControlCommand.h>
+#include <z1_msgs/GripperGoal.h>
+#include <z1_msgs/ImpedanceGains.h>
+#include <z1_msgs/JointGoal.h>
+#include <z1_msgs/JointStream.h>
+#include <z1_msgs/MotionResult.h>
+#include <z1_msgs/PoseGoal.h>
+#include <z1_msgs/PoseStream.h>
+#include <z1_msgs/Status.h>
+namespace {
+double number(const XmlRpc::XmlRpcValue &v) {
+  if (v.getType() == XmlRpc::XmlRpcValue::TypeDouble)
+    return static_cast<double>(v);
+  if (v.getType() == XmlRpc::XmlRpcValue::TypeInt)
+    return static_cast<int>(v);
+  throw std::runtime_error("configuration value must be numeric");
+}
+template <class V>
+void readVector(ros::NodeHandle &p, const std::string &name, V &v) {
+  XmlRpc::XmlRpcValue a;
+  if (!p.getParam(name, a))
+    return;
+  if (a.getType() != XmlRpc::XmlRpcValue::TypeArray || a.size() != v.size())
+    throw std::runtime_error("invalid vector parameter: " + name);
+  for (int i = 0; i < a.size(); ++i)
+    v[i] = number(a[i]);
+}
+template <class A> z1::Vec vector(const A &a) {
+  z1::Vec out;
+  for (int i = 0; i < 6; ++i)
+    out[i] = a[i];
+  return out;
+}
+bool pose(const geometry_msgs::Pose &msg, z1::Pose &p) {
+  Eigen::Quaterniond q(msg.orientation.w, msg.orientation.x, msg.orientation.y,
+                       msg.orientation.z);
+  if (!q.coeffs().allFinite() || std::abs(q.norm() - 1) > 0.001)
+    return false;
+  p = z1::Pose::Identity();
+  p.linear() = q.normalized().toRotationMatrix();
+  p.translation() << msg.position.x, msg.position.y, msg.position.z;
+  return z1::validPose(p);
+}
+geometry_msgs::Pose poseMessage(const z1::Pose &p) {
+  geometry_msgs::Pose out;
+  auto t = p.translation();
+  Eigen::Quaterniond q(p.linear());
+  out.position.x = t.x();
+  out.position.y = t.y();
+  out.position.z = t.z();
+  out.orientation.x = q.x();
+  out.orientation.y = q.y();
+  out.orientation.z = q.z();
+  out.orientation.w = q.w();
+  return out;
+}
+class Node {
+  ros::NodeHandle nh_, params_{"~"};
+  z1::Config config_;
+  std::unique_ptr<z1::Runtime> runtime_;
+  std::string prefix_, base_frame_;
+  double command_age_{0.2}, publish_rate_{100};
+  ros::Publisher joints_, tcp_, status_, results_;
+  std::vector<ros::Subscriber> subscriptions_;
+  // Serialize low-rate result messages between callback threads; ROS publisher
+  // itself is thread-safe.
+  bool header(const std_msgs::Header &h, bool stream, bool base_required) {
+    if (base_required && h.frame_id != base_frame_)
+      return false;
+    if (stream && h.stamp.isZero())
+      return false;
+    if (!h.stamp.isZero()) {
+      double age = (ros::Time::now() - h.stamp).toSec();
+      if (age > command_age_ || age < -0.02)
+        return false;
+    }
+    return true;
+  }
+  double streamTime(const std_msgs::Header &h) {
+    // Preserve the remaining validity of an aged target on the monotonic clock.
+    return z1::monotonicTime() -
+           std::max(0.0, (ros::Time::now() - h.stamp).toSec());
+  }
+  void result(uint64_t id, bool okay, const std::string &why) {
+    z1_msgs::MotionResult out;
+    out.header.stamp = ros::Time::now();
+    out.command_id = id;
+    out.outcome = okay ? z1_msgs::MotionResult::ACCEPTED
+                       : z1_msgs::MotionResult::REJECTED;
+    out.reason = why;
+    results_.publish(out);
+  }
+
+public:
+  Node() {
+    std::string urdf, backend, ip;
+    int port = 8881, budget = 1500;
+    bool validated = false;
+    if (!params_.getParam("model_file", urdf) || urdf.empty())
+      throw std::runtime_error("model_file is required");
+    params_.param<std::string>("backend", backend, "simulation");
+    params_.param<std::string>("joint_prefix", prefix_, "");
+    base_frame_ = prefix_ + "link00";
+    params_.param("command_max_age", command_age_, 0.2);
+    params_.param("publish_rate", publish_rate_, 100.0);
+    if (command_age_ <= 0 || !std::isfinite(command_age_) ||
+        publish_rate_ <= 0 || publish_rate_ > 250 ||
+        !std::isfinite(publish_rate_))
+      throw std::runtime_error("invalid adapter timing");
+    for (auto entry :
+         {std::make_pair("period", &config_.period),
+          {"feedback_timeout", &config_.feedback_timeout},
+          {"stream_timeout", &config_.stream_timeout},
+          {"collision_margin", &config_.collision_margin},
+          {"collision_warning", &config_.collision_warning},
+          {"geometry_radius_bound", &config_.geometry_radius_bound},
+          {"validation_budget", &config_.validation_budget},
+          {"lookahead_budget", &config_.lookahead_budget},
+          {"position_tolerance", &config_.position_tolerance},
+          {"velocity_tolerance", &config_.velocity_tolerance},
+          {"settle_timeout", &config_.settle_timeout},
+          {"tcp_position_tolerance", &config_.tcp_position_tolerance},
+          {"tcp_orientation_tolerance", &config_.tcp_orientation_tolerance}})
+      params_.param(entry.first, *entry.second, *entry.second);
+    readVector(params_, "velocity", config_.velocity);
+    readVector(params_, "acceleration", config_.acceleration);
+    readVector(params_, "jerk", config_.jerk);
+    readVector(params_, "torque", config_.torque);
+    readVector(params_, "torque_rate", config_.torque_rate);
+    readVector(params_, "kp", config_.kp);
+    readVector(params_, "kd", config_.kd);
+    readVector(params_, "stiffness", config_.stiffness);
+    readVector(params_, "damping", config_.damping);
+    auto model = z1::defaultModelConfig(urdf);
+    params_.param<std::string>("tool_frame", model.tool_frame, "tool");
+    readVector(params_, "gravity", model.gravity);
+    XmlRpc::XmlRpcValue pairs;
+    if (params_.getParam("ignored_collision_pairs", pairs)) {
+      if (pairs.getType() != XmlRpc::XmlRpcValue::TypeArray)
+        throw std::runtime_error("collision pairs must be an array");
+      model.ignored_pairs.clear();
+      for (int i = 0; i < pairs.size(); ++i) {
+        auto &a = pairs[i];
+        if (a.getType() != XmlRpc::XmlRpcValue::TypeArray || a.size() != 2 ||
+            a[0].getType() != XmlRpc::XmlRpcValue::TypeString ||
+            a[1].getType() != XmlRpc::XmlRpcValue::TypeString)
+          throw std::runtime_error("invalid collision pair");
+        model.ignored_pairs.emplace_back(static_cast<std::string>(a[0]),
+                                         static_cast<std::string>(a[1]));
+      }
+    }
+    XmlRpc::XmlRpcValue boxes;
+    if (params_.getParam("fixed_boxes", boxes)) {
+      if (boxes.getType() != XmlRpc::XmlRpcValue::TypeArray)
+        throw std::runtime_error("fixed_boxes must be an array");
+      for (int i = 0; i < boxes.size(); ++i) {
+        auto &b = boxes[i];
+        if (b.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
+            !b.hasMember("name") || !b.hasMember("size") ||
+            !b.hasMember("xyz") || !b.hasMember("rpy"))
+          throw std::runtime_error("invalid fixed box");
+        z1::FixedBox box;
+        box.name = static_cast<std::string>(b["name"]);
+        Eigen::Vector3d xyz, rpy;
+        for (auto key : {"size", "xyz", "rpy"})
+          if (b[key].getType() != XmlRpc::XmlRpcValue::TypeArray ||
+              b[key].size() != 3)
+            throw std::runtime_error("fixed box vector must have 3 entries");
+        for (int j = 0; j < 3; ++j) {
+          box.size[j] = number(b["size"][j]);
+          xyz[j] = number(b["xyz"][j]);
+          rpy[j] = number(b["rpy"][j]);
+        }
+        box.placement.translation() = xyz;
+        box.placement.linear() =
+            (Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()) *
+             Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()) *
+             Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX()))
+                .toRotationMatrix();
+        model.fixed_boxes.push_back(box);
+      }
+    }
+    std::function<std::unique_ptr<z1::Transport>()> transport;
+    if (backend == "simulation")
+      transport = [model, this] {
+        return std::make_unique<z1::Simulation>(model, config_.period);
+      };
+    else if (backend == "udp") {
+      params_.param<std::string>("mcu_ip", ip, "192.168.123.110");
+      params_.param("local_port", port, 8881);
+      params_.param("receive_budget_us", budget, 1500);
+      params_.param("hardware_validated", validated, false);
+      if (port <= 0 || port > 65535 || budget <= 0 ||
+          budget >= config_.period * 1e6)
+        throw std::runtime_error(
+            "invalid port or receive budget exceeds period");
+      z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
+                        static_cast<unsigned>(budget), validated};
+      transport = [mcu] { return std::make_unique<z1::McuTransport>(mcu); };
+    } else
+      throw std::runtime_error("unknown backend: " + backend);
+    runtime_ =
+        std::make_unique<z1::Runtime>(model, config_, std::move(transport));
+    joints_ = nh_.advertise<sensor_msgs::JointState>("joint_states", 1);
+    tcp_ = nh_.advertise<geometry_msgs::PoseStamped>("tcp_pose", 1);
+    status_ = nh_.advertise<z1_msgs::Status>("status", 1, true);
+    results_ = nh_.advertise<z1_msgs::MotionResult>("result", 128);
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::JointGoal>(
+        "joint_goal", 1, [this](const z1_msgs::JointGoal::ConstPtr &m) {
+          if (!header(m->header, false, false)) {
+            result(m->command_id, false, "expired goal");
+            return;
+          }
+          runtime_->controller().goal(m->command_id, vector(m->positions),
+                                      m->speed_scale);
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::PoseGoal>(
+        "pose_goal", 1, [this](const z1_msgs::PoseGoal::ConstPtr &m) {
+          z1::Pose p;
+          if (!header(m->header, false, true) || !pose(m->pose, p)) {
+            result(m->command_id, false, "invalid pose, frame or timestamp");
+            return;
+          }
+          runtime_->controller().poseGoal(m->command_id, p, m->speed_scale);
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::JointStream>(
+        "joint_stream", 1, [this](const z1_msgs::JointStream::ConstPtr &m) {
+          if (!header(m->header, true, false) ||
+              !runtime_->controller().stream(m->session_id, m->sequence,
+                                             vector(m->positions),
+                                             streamTime(m->header)))
+            ROS_WARN_THROTTLE(1, "Rejected joint stream (timestamp, session, "
+                                 "sequence, mode or target)");
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::PoseStream>(
+        "pose_stream", 1, [this](const z1_msgs::PoseStream::ConstPtr &m) {
+          z1::Pose p;
+          if (!header(m->header, true, true) || !pose(m->pose, p) ||
+              !runtime_->controller().stream(m->session_id, m->sequence, p,
+                                             streamTime(m->header)))
+            ROS_WARN_THROTTLE(1, "Rejected pose stream");
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::ControlCommand>(
+        "control", 16, [this](const z1_msgs::ControlCommand::ConstPtr &m) {
+          if (m->operation > 7) {
+            result(m->command_id, false, "unknown operation");
+            return;
+          }
+          // STOP/DISABLE remain available even when the ROS clock or command
+          // stamp is invalid.
+          if (m->operation != z1_msgs::ControlCommand::STOP &&
+              m->operation != z1_msgs::ControlCommand::DISABLE &&
+              !header(m->header, false, false)) {
+            result(m->command_id, false, "expired control command");
+            return;
+          }
+          runtime_->controller().operate(
+              static_cast<z1::Operation>(m->operation), m->command_id);
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::ImpedanceGains>(
+        "impedance_gains", 1,
+        [this](const z1_msgs::ImpedanceGains::ConstPtr &m) {
+          bool okay = header(m->header, false, false) &&
+                      runtime_->controller().gains(vector(m->stiffness),
+                                                   vector(m->damping));
+          result(m->command_id, okay,
+                 okay ? "gains applied"
+                      : "requires holding and bounded positive gains");
+        }));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::GripperGoal>(
+        "gripper_goal", 1, [this](const z1_msgs::GripperGoal::ConstPtr &m) {
+          bool okay = header(m->header, false, false) &&
+                      runtime_->controller().gripper(m->position);
+          result(m->command_id, okay,
+                 okay ? "gripper target accepted; no arrival result"
+                      : "gripper absent, invalid target or mode");
+        }));
+    runtime_->start();
+  }
+  void run() {
+    ros::AsyncSpinner spinner(2);
+    spinner.start();
+    ros::WallRate rate(publish_rate_);
+    while (ros::ok()) {
+      auto s = runtime_->controller().snapshot();
+      auto stamp = ros::Time::now();
+      double age = z1::monotonicTime() - s.feedback.received_at;
+      z1_msgs::Status status;
+      status.header.stamp = stamp;
+      status.header.frame_id = base_frame_;
+      status.mode = static_cast<uint8_t>(s.mode);
+      status.reason = s.reason;
+      status.session_id = s.session;
+      status.active_command_id = s.active_id;
+      status.feedback_sequence = s.feedback.sequence;
+      status.feedback_valid =
+          s.feedback_valid && age >= 0 && age <= config_.feedback_timeout;
+      status.new_feedback = s.feedback.fresh;
+      status.feedback_age = s.feedback.sequence ? age : -1;
+      status.has_gripper = s.feedback.has_gripper;
+      status.collision_distance = s.collision_distance;
+      status.collision_pair = s.collision_pair;
+      status.compute_time = s.compute_time;
+      status.overruns = s.overruns;
+      status.model_revision = s.model_revision;
+      status.loop_period = s.loop_period;
+      status.max_loop_period = s.max_loop_period;
+      status_.publish(status);
+      if (s.feedback.sequence > 0) {
+        sensor_msgs::JointState joints;
+        joints.header.stamp = stamp;
+        for (int i = 0; i < 6; ++i) {
+          joints.name.push_back(prefix_ + "joint" + std::to_string(i + 1));
+          joints.position.push_back(s.feedback.q[i]);
+          joints.velocity.push_back(s.feedback.dq[i]);
+          joints.effort.push_back(s.feedback.tau[i]);
+        }
+        if (s.feedback.has_gripper) {
+          joints.name.push_back(prefix_ + "gripper_motor");
+          joints.position.push_back(s.feedback.gripper_q);
+          joints.velocity.push_back(s.feedback.gripper_dq);
+          joints.effort.push_back(s.feedback.gripper_tau);
+        }
+        joints_.publish(joints);
+        if (status.feedback_valid) {
+          geometry_msgs::PoseStamped p;
+          p.header.stamp = stamp;
+          p.header.frame_id = base_frame_;
+          p.pose = poseMessage(s.tcp);
+          tcp_.publish(p);
+        }
+      }
+      for (auto &e : runtime_->controller().events()) {
+        z1_msgs::MotionResult m;
+        m.header.stamp = stamp;
+        m.command_id = e.id;
+        m.outcome = static_cast<uint8_t>(e.outcome);
+        m.reason = e.reason;
+        results_.publish(m);
+      }
+      rate.sleep();
+    }
+    spinner.stop();
+    runtime_->stop();
+  }
+};
+} // namespace
+int main(int argc, char **argv) {
+  ros::init(argc, argv, "z1_topic_node");
+  try {
+    Node node;
+    node.run();
+    return 0;
+  } catch (const std::exception &e) {
+    ROS_FATAL("%s", e.what());
+    return 1;
+  }
+}

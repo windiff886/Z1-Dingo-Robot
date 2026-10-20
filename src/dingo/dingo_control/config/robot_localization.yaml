@@ -1,23 +1,38 @@
-#Configuation for robot odometry EKF
-#
+# Robot localization EKF configuration for Dingo chassis motion state fusion.
+# Fuses wheel odometry (vx, vy, omega_z) with chassis IMU angular velocity (omega_z).
+
 frequency: 50
+sensor_timeout: 0.2
 two_d_mode: true
 predict_to_current_time: true
 
-odom0: /dingo_velocity_controller/odom
+# By default, do NOT publish odom -> base_link TF. Controlled via launch argument publish_odom_tf.
+publish_tf: false
+
+# Wheel odometry input (raw wheel odometry from velocity controller)
+odom0: /dingo/odom_raw
+# Configuration order:
+# [x,   y,   z,
+#  r,   p,   y,
+#  vx,  vy,  vz,
+#  vr,  vp,  vyaw,
+#  ax,  ay,  az]
 odom0_config: [false, false, false,
                false, false, false,
-               true, true, false,
+               true,  true,  false,
                false, false, true,
                false, false, false]
 odom0_differential: false
-imu0: /imu/data
+
+# Raw IMU input (direct angular velocity from chassis IMU without Madgwick)
+imu0: /dingo/imu/data_raw
 imu0_config: [false, false, false,
               false, false, false,
               false, false, false,
               false, false, true,
               false, false, false]
 imu0_differential: false
+
 odom_frame: odom
 base_link_frame: base_link
 world_frame: odom

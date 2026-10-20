@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>z1_description</name><version>1.0.0</version><description>Z1 model and visual meshes.</description>
+  <maintainer email="maintainer@example.com">Z1-Dingo contributors</maintainer><license>BSD-3-Clause</license>
+  <buildtool_depend>catkin</buildtool_depend><exec_depend>xacro</exec_depend>
+</package>

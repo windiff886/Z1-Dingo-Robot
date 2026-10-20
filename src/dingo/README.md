@@ -1,308 +1,92 @@
-# Dingo ROS Package
+# Dingo 底盘组件
 
-Dingo 是 Clearpath Robotics 的室内移动机器人平台的 ROS 驱动包。
+面向 Dingo-O 全向底盘，使用 ROS 1 Noetic。组件接收速度命令、读取底盘反馈，并发布融合后的运动状态。
 
-## 项目结构
+## 1. 当前功能
 
+| 功能 | 文件位置 | 说明 |
+| --- | --- | --- |
+| 底盘驱动与控制 | `dingo_control/launch/`、`config/control_*.yaml` | 调用官方驱动，配置轮子控制器；支持全向和差速两种配置，默认全向 |
+| 通信工具 | `dingo_control/scripts/can-udp-bridge.sh`、`deployment/` | CAN/UDP 桥接脚本及 systemd 服务模板；默认连接 `192.168.131.2:11412`，提供 `vcan0` 接口 |
+| EKF 滤波融合 | `dingo_control/config/robot_localization.yaml` | 融合轮式里程计的前向速度、侧向速度和旋转角速度，以及 IMU 的旋转角速度 |
+| 反馈监测 | `dingo_control/scripts/feedback_monitor.py` | 检查输入和输出的时效、数值、协方差与坐标变换，发布诊断 |
+| 底盘描述 | `dingo_description/urdf/`、`meshes/` | 全向/差速底盘的几何、轮子关节和挂载点 |
+
+实际驱动 `dingo_base`、消息包 `dingo_msgs` 和控制器插件由运行环境提供。本目录不包含完整的底层通信协议实现，也不提供遥操作、导航或整机仿真。
+
+当前使用 `robot_localization` 的 EKF，不启动 Madgwick IMU 姿态滤波，也不融合 IMU 姿态和线加速度。
+
+## 2. Topic 接口
+
+方向以本组件为准；下表为默认名称。
+
+| Topic | 方向 | 消息类型 | 用途 |
+| --- | --- | --- | --- |
+| `/dingo/cmd_vel` | 输入 | `geometry_msgs/Twist` | 底盘速度命令 |
+| `/dingo/odom` | 输出 | `nav_msgs/Odometry` | EKF 融合后的主要运动状态，配置频率 50 Hz |
+| `/dingo/odom_raw` | 输出 | `nav_msgs/Odometry` | 未经本地 EKF 的轮式里程计，同时作为 EKF 输入 |
+| `/dingo/imu/data_raw` | 输出 | `sensor_msgs/Imu` | 底盘原始 IMU 数据，同时作为 EKF 输入 |
+| `/joint_states` | 输出 | `sensor_msgs/JointState` | 轮子关节反馈，配置频率 200 Hz |
+| `/diagnostics` | 输出 | `diagnostic_msgs/DiagnosticArray` | EKF 及反馈有效性诊断，反馈监测频率 10 Hz |
+
+命令使用 `linear.x`（前向，m/s）、`linear.y`（侧向，m/s）和 `angular.z`（旋转，rad/s）。全向底盘支持侧移；控制器的命令超时设为 0.25 秒。
+
+主要反馈从 `/dingo/odom` 读取：
+
+```text
+twist.twist.linear.x    前向速度，m/s
+twist.twist.linear.y    侧向速度，m/s
+twist.twist.angular.z   旋转角速度，rad/s
 ```
-dingo/
-├── dingo_base        # 基础驱动节点，硬件接口
-├── dingo_bringup     # 启动配置和传感器驱动
-├── dingo_control     # 控制器、定位和遥控
-├── dingo_description # URDF 模型描述
-├── dingo_msgs        # 自定义消息类型
-├── dingo_robot       # 元包
-└── dingo_tests       # 测试包
-```
 
-## 编译说明
+其 `header.frame_id` 为 `odom`，`child_frame_id` 为 `base_link`：位置和姿态在 `odom` 坐标系下，速度在 `base_link` 坐标系下。位置与航向是局部估计，会随时间漂移。
 
-**本包无需编译**。这是预编译的二进制包，包含已编译好的节点和配置文件。
+输入中断时 EKF 仍可能持续发布预测，因此需同时检查 `/diagnostics` 中的 `dingo/feedback`：
 
-目录中的 `CATKIN_IGNORE` 文件会让 `catkin_make` 跳过此目录。
+| 状态 | 含义 |
+| --- | --- |
+| `ready` | 轮式输入、IMU 输入和融合输出均通过监测 |
+| `wheel_only` | 融合输出通过监测，仅轮式输入通过监测 |
+| `imu_only` | 融合输出通过监测，仅 IMU 输入通过监测，线速度缺少有效轮式测量 |
+| `prediction_only` | 输出仍在发布，两路输入均未通过监测 |
+| `unavailable` | 融合输出未收到、过期或未通过检查 |
 
-如需使用，只需确保：
-1. ROS 环境已正确配置 (`source /opt/ros/noetic/setup.bash`)
-2. 工作空间已 source (`source devel/setup.bash`)
-3. 依赖包已安装（见下方依赖列表）
+各路超时阈值默认 0.2 秒。监测只报告状态，不修改 EKF 输出；使用方也需检查诊断消息本身是否过期。硬件状态消息类型为 `dingo_msgs/Status`，实际 topic 名称以目标机驱动为准。
 
-### 主要依赖
+## 3. Launch 使用方法
+
+运行环境需安装官方驱动、控制器及 `robot_localization` 等依赖，并加载已构建工作空间的 `setup.bash`。使用 CAN/UDP 桥接的真机需先启动桥接服务；ROS launch 不会自动启动该服务。
 
 ```bash
-sudo apt install ros-noetic-controller-manager \
-                 ros-noetic-diff-drive-controller \
-                 ros-noetic-imu-filter-madgwick \
-                 ros-noetic-robot-localization \
-                 ros-noetic-twist-mux \
-                 ros-noetic-teleop-twist-joy \
-                 ros-noetic-joy \
-                 ros-noetic-interactive-marker-twist-server
+# 启动全向底盘：驱动、控制器、模型加载、IMU 静态 TF、EKF 和反馈监测
+roslaunch dingo_control dingo.launch dingo_omni:=1
+
+# 需要里程计 TF 时，由 EKF 发布 odom -> base_link
+roslaunch dingo_control dingo.launch dingo_omni:=1 publish_odom_tf:=true
+
+# 自定义命令和融合反馈 topic
+roslaunch dingo_control dingo.launch dingo_omni:=1 \
+  cmd_vel_topic:=/my_robot/cmd_vel odom_topic:=/my_robot/odom
 ```
 
-## 快速启动
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `dingo_omni` | `DINGO_OMNI` 环境变量，未设置时为 `1` | `1` 全向，`0` 差速；本机应使用 `1` |
+| `motor_params` | `DINGO_MOTOR_PARAMS` 环境变量，未设置时为 `base` | `config/hardware/` 中的配置名；`base` 使用驱动默认参数 |
+| `cmd_vel_topic`、`odom_topic`、`odom_raw_topic`、`imu_raw_topic`、`diagnostics_topic` | 上表中的默认名称 | 修改对应 topic，内部融合和监测同步使用新名称 |
+| `ekf_config` | 本包 `config/robot_localization.yaml` | EKF 参数文件 |
+| `wheel_timeout`、`imu_timeout`、`odom_timeout` | 各 `0.2` 秒 | 各路反馈监测超时阈值 |
+| `load_description` | `true` | 加载 `robot_description`；外部已提供兼容模型时设为 `false` |
+| `publish_odom_tf` | `false` | 是否由 EKF 发布 `odom -> base_link` |
+| `publish_imu_tf` | `true` | 是否发布 `base_link -> imu_link` 静态变换；外部已提供时设为 `false` |
+| `imu_frame` | `imu_link` | 与原始 IMU 的 `header.frame_id` 一致 |
+| `imu_x`、`imu_y`、`imu_z` | 各 `0` 米 | IMU 相对 `base_link` 的安装位置 |
+| `imu_roll`、`imu_pitch`、`imu_yaw` | 各 `0` 弧度 | IMU 相对 `base_link` 的安装角度 |
 
-### 1. 启动基础驱动
+IMU 安装变换需按实机核实；若传感器轴与底盘轴不对齐，也需调整 EKF 的轴选择。模型加载仅设置描述参数，不启动 `robot_state_publisher`。
+
+仅加载底盘描述时使用：
 
 ```bash
-# 使用手柄控制 (默认)
-roslaunch dingo_base base.launch
-
-# 使用键盘控制
-roslaunch dingo_base base.launch teleop:=keyboard
+roslaunch dingo_description description.launch dingo_omni:=1
 ```
-
-这将启动：
-- Dingo 硬件驱动节点
-- IMU 滤波器
-- 控制器 (velocity controller)
-- EKF 定位
-- 遥控功能 (手柄/键盘，取决于 teleop 参数)
-- 诊断聚合器
-
-#### base.launch 详细解析
-
-该 launch 文件初始化机器人运行所需的全部底层功能：
-
-**1. rosserial 消息服务**
-- 启动 rosserial 的消息信息服务，用于与底层 MCU 进行串口通信
-
-**2. Dingo 主节点 (dingo_node)**
-- 核心驱动节点，与底盘硬件通信
-- 根据 `DINGO_OMNI` 环境变量决定是全向驱动还是差速驱动
-- 加载电机参数配置文件
-- 配置无线网络接口
-
-**3. IMU 滤波器 (imu_filter_madgwick)**
-- 使用 Madgwick 算法融合 IMU 的加速度计、陀螺仪和磁力计数据
-- 输出稳定的姿态估计（orientation）
-- 关键参数：gain=0.1, zeta=0.001
-
-**4. 控制系统 (control.launch)**
-- `controller_spawner`: 加载关节状态发布器和速度控制器
-- `ekf_localization_node`: 扩展卡尔曼滤波器，融合轮式里程计和 IMU 数据
-- `twist_mux`: 速度指令多路复用器，管理多个速度输入源的优先级
-
-**5. 遥控系统 (teleop.launch)**
-- `joy_node`: 读取手柄输入（默认 `/dev/input/ps4`）
-- `teleop_twist_joy`: 将手柄输入转换为 Twist 速度命令
-- `twist_marker_server`: RViz 交互式标记服务器
-
-**6. 诊断聚合器 (diagnostic_aggregator)**
-- 聚合机器人各组件的诊断信息
-- 根据底盘类型加载对应的诊断配置
-
-**系统架构图：**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      base.launch                             │
-├─────────────────────────────────────────────────────────────┤
-│  ┌────────────┐   ┌────────────┐   ┌──────────────────┐    │
-│  │ dingo_node │   │ imu_filter │   │ diagnostic_      │    │
-│  │  (硬件驱动) │   │ (姿态估计)  │   │ aggregator       │    │
-│  └─────┬──────┘   └──────┬─────┘   └──────────────────┘    │
-│        │                 │                                   │
-│        ▼                 ▼                                   │
-│  ┌───────────────────────────────────────────────────┐      │
-│  │ control.launch                                     │      │
-│  │ controller_spawner | ekf_localization | twist_mux │      │
-│  └───────────────────────────────────────────────────┘      │
-│                          ▲                                   │
-│  ┌───────────────────────┴───────────────────────────┐      │
-│  │ teleop.launch                                      │      │
-│  │ joy_node ──▶ teleop_twist_joy ──▶ twist_marker    │      │
-│  └───────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2. 启动传感器配件
-
-```bash
-roslaunch dingo_bringup accessories.launch
-```
-
-#### accessories.launch 详细解析
-
-该 launch 文件用于启动 Dingo 的外部传感器和配件驱动，通过环境变量控制启用哪些配件。
-
-**支持的传感器和配件：**
-
-| 类别 | 设备 | 启用环境变量 |
-|------|------|-------------|
-| 2D 激光雷达 (主) | SICK LMS1xx, TIM551, Hokuyo UST10 | `DINGO_LASER=1` |
-| 2D 激光雷达 (副) | 同上 | `DINGO_LASER_SECONDARY=1` |
-| 3D 激光雷达 | Velodyne VLP16, HDL32E | `DINGO_LASER_3D=1` |
-| Intel RealSense (主) | D435, D435i, D415, D455, L515 | `DINGO_REALSENSE=1` |
-| Intel RealSense (副) | 同上 | `DINGO_REALSENSE_SECONDARY=1` |
-| FLIR BlackflyS 相机 | USB3/GigE 工业相机 | `DINGO_BLACKFLY=1` |
-| Microstrain IMU | GX3, GX5, GX25 等 | `DINGO_IMU_MICROSTRAIN=1` |
-| Wibotic 无线充电器 | CAN 接口充电器 | `DINGO_WIBOTIC_CHARGER=1` |
-
-**注意**：默认不启动任何传感器，需通过环境变量显式启用。
-
-**使用示例：**
-
-```bash
-# 启用前置激光雷达 + RealSense 相机
-export DINGO_LASER=1
-export DINGO_LASER_HOST=192.168.131.20
-export DINGO_REALSENSE=1
-roslaunch dingo_bringup accessories.launch
-```
-
-**启动顺序**：应先启动 `base.launch`（底盘驱动），再启动 `accessories.launch`（传感器驱动）。
-
-## 环境变量配置
-
-### 底盘类型
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGO_OMNI` | 设置为 `1` 启用全向底盘模式，`0` 为差分底盘 | `1` |
-
-### 激光雷达配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGO_LASER` | 设置为 `1` 启用主激光雷达 | `0` |
-| `DINGO_LASER_MODEL` | 雷达型号: `lms1xx`, `tim551`, `ust10` | `lms1xx` |
-| `DINGO_LASER_HOST` | 雷达 IP 地址 | `192.168.131.20` |
-| `DINGO_LASER_TOPIC` | 发布话题名 | `front/scan` |
-| `DINGO_LASER_SECONDARY` | 设置为 `1` 启用副激光雷达 | `0` |
-
-### 3D 激光雷达配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGO_LASER_3D` | 设置为 `1` 启用 3D 激光雷达 | `0` |
-| `DINGO_LASER_3D_MODEL` | 型号: `vlp16`, `hdl32e` | `vlp16` |
-| `DINGO_LASER_3D_HOST` | IP 地址 | `192.168.131.20` |
-
-### Intel RealSense 相机配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGO_REALSENSE` | 设置为 `1` 启用 RealSense | `0` |
-| `DINGO_REALSENSE_MODEL` | 型号: `d435`, `d435i`, `d415`, `d455`, `l515` | `d435` |
-| `DINGO_REALSENSE_TOPIC` | 命名空间 | `realsense` |
-
-### 遥控配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGO_JOY_DEV` | 手柄设备路径 | `/dev/input/ps4` |
-
-## 遥控方式
-
-### 1. PS4 手柄控制
-
-手柄控制随 `base.launch` 自动启动。
-
-**按键映射（差速模式）：**
-
-| 功能 | 按键/摇杆 | 参数 |
-|------|----------|------|
-| 前后移动 | 左摇杆 上下 | 0.4 m/s |
-| 左右转向 | 左摇杆 左右 | 1.4 rad/s |
-| 使能按钮 | **L1** (必须按住) | - |
-| 加速模式 | **R1** | 2.0 m/s |
-
-**蓝牙配对：**
-```bash
-bluetoothctl
-power on
-scan on
-# 手柄进入配对模式：按住 PS + Share 3秒
-pair XX:XX:XX:XX:XX:XX
-trust XX:XX:XX:XX:XX:XX
-connect XX:XX:XX:XX:XX:XX
-```
-
-### 2. 键盘控制
-
-启动时指定 teleop 参数为 keyboard：
-
-```bash
-export DINGO_OMNI=1
-
-source devel/setup.bash 
-roslaunch dingo_base base.launch teleop:=keyboard 
-
-source devel/setup.bash 
-rosrun dingo_control simple_keyboard_teleop.py
-```
-```bash
-  # 删除机械臂网络的默认网关（它们不需要访问互联网）
-  sudo ip route del default via 192.168.123.1 dev enp111s0
-  sudo ip route del default via 192.168.131.1 dev enx68da73ae507e
-# 杀掉残留的 ROS 进程
-killall -9 rosmaster roscore dingo_node 2>/dev/null
-# 或者等待几秒后再启动
-```
-
-
-**按键映射（6键模式，匹配 PS4）：**
-
-```
-        W (前进)
-        
-   A (左转)     D (右转)
-        
-        S (后退)
-
-   空格键: 使能 (必须按住)
-   Shift:  加速模式
-```
-
-| 按键 | 功能 | 对应 PS4 |
-|------|------|----------|
-| `W` | 前进 | 左摇杆 ↑ |
-| `S` | 后退 | 左摇杆 ↓ |
-| `A` | 左转 | 左摇杆 ← |
-| `D` | 右转 | 左摇杆 → |
-| `空格` | 使能 (必须按住) | L1 |
-| `Shift` | 加速模式 | R1 |
-
-**调整速度参数：**
-```bash
-roslaunch dingo_control keyboard_teleop.launch speed:=0.8 turn:=1.5
-```
-
-### 3. 速度指令优先级
-
-通过 `twist_mux` 管理多个速度输入源：
-
-| 来源 | 话题 | 优先级 |
-|------|------|--------|
-| 急停 (E-Stop) | `/e_stop` | 255 |
-| USB 手柄 | `joy_teleop/cmd_vel` | 10 |
-| 蓝牙手柄 | `bluetooth_teleop/cmd_vel` | 9 |
-| RViz 交互 | `twist_marker_server/cmd_vel` | 8 |
-| 键盘 | `keyboard_teleop/cmd_vel` | 7 |
-| 外部命令 | `/cmd_vel` | 1 |
-
-> 优先级高的输入会覆盖低优先级输入。
-
-## 使用示例
-
-### 启动全向底盘 + 激光雷达
-
-```bash
-export DINGO_OMNI=1
-export DINGO_LASER=1
-export DINGO_LASER_HOST=192.168.1.10
-roslaunch dingo_base base.launch
-```
-
-### 单独启动 URDF 描述
-
-```bash
-roslaunch dingo_description description.launch
-```
-
-## 主要话题
-
-- `/cmd_vel` - 速度指令输入
-- `/odom` - 里程计输出
-- `/imu/data` - IMU 数据
-- `/front/scan` - 前置激光雷达数据（如已配置）

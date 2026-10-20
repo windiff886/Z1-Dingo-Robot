@@ -6,7 +6,6 @@ add_compile_options(-std=c++11)
 find_package(catkin REQUIRED COMPONENTS
   serial
   roscpp
-  rospy
   std_msgs
   pan_tilt_msgs
 )
@@ -16,7 +15,7 @@ find_package(Boost REQUIRED COMPONENTS system)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES pan_tilt_driver
-#  CATKIN_DEPENDS roscpp rospy std_msgs
+#  CATKIN_DEPENDS roscpp std_msgs
 #  DEPENDS system_lib
 )
 

@@ -1,7 +1,5 @@
 <?xml version="1.0"?>
 <robot name="dingo" xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="pacs_enabled" value="$(optenv DINGO_PACS_ENABLED 0)" />
-
   <xacro:property name="PI" value="3.1415926535897931" />
 
   <xacro:property name="wheelbase" value="0.570" />
@@ -14,14 +12,12 @@
 
   <xacro:property name="dummy_inertia" value="1e-09"/>
 
-
   <material name="dark_grey"><color rgba="0.2 0.2 0.2 1.0" /></material>
   <material name="light_grey"><color rgba="0.4 0.4 0.4 1.0" /></material>
   <material name="yellow"><color rgba="0.8 0.8 0.0 1.0" /></material>
   <material name="black"><color rgba="0.15 0.15 0.15 1.0" /></material>
 
   <xacro:macro name="wheel" params="prefix *joint_pose">
-
     <link name="${prefix}_wheel_link">
       <visual>
         <origin xyz="0 0 0" rpy="${PI/2} 0 0"/>
@@ -108,9 +104,8 @@
         ixx="0.35498" ixy="0" ixz="0"
         iyy="0.7266" iyz="0"
         izz="1.0553"/>
-      </inertial>
+    </inertial>
   </link>
-
 
   <link name="imu_link">
     <inertial>
@@ -124,19 +119,7 @@
     <child link="imu_link" />
   </joint>
 
-  <!--
-    Mounting points for accessories in the top channel.
-    These are flush with the top of the robot and all oriented to face forwards.
-    Dingo-D has 6 evenly-spaced 80mm mounts
-    We name the mounts (from front to back)
-      - front
-      - front b
-      - front c
-      - mid
-      - rear c
-      - rear b
-      - rear
-  -->
+  <!-- Mounting points for accessories in the top channel -->
   <link name="front_mount"/>
   <link name="front_b_mount"/>
   <link name="front_c_mount"/>
@@ -181,30 +164,11 @@
     <child link="rear_mount" />
   </joint>
 
-  <!--
-    Mounting point for accessories on the front bumper.
-    Use with caution, but thin sensors (e.g Raspberry Pi NoIR camera) could
-    be mounted here for low-budget, front/rear-facing capabilities
-  -->
+  <!-- Mounting point for accessories on the front bumper -->
   <link name="front_bumper_mount"></link>
   <joint name="front_bumper_mount_joint" type="fixed">
     <origin xyz="0.34159 0 0.0345115" rpy="0 0 0" />
     <parent link="chassis_link"/>
     <child link="front_bumper_mount" />
   </joint>
-
-  <!-- PACS -->
-  <xacro:include filename="$(find dingo_description)/urdf/pacs.urdf.xacro"/>
-  <xacro:pacs/>
-
-  <!-- Bring in simulation data for Gazebo. -->
-  <xacro:include filename="$(find dingo_description)/urdf/dingo.gazebo" />
-  <xacro:include filename="$(find dingo_description)/urdf/dingo-o.gazebo" />
-  <!-- Optional standard accessories, including their simulation data. The rendering
-       of these into the final description is controlled by optenv variables, which
-       default each one to off.-->
-  <xacro:include filename="$(find dingo_description)/urdf/accessories.urdf.xacro" />
-
-  <!-- Optional custom includes. -->
-  <xacro:include filename="$(optenv DINGO_URDF_EXTRAS empty.urdf)" />
 </robot>

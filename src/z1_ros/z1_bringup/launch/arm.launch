@@ -1,0 +1,24 @@
+<launch>
+  <arg name="namespace" default="arm"/>
+  <arg name="prefix" default="arm_"/>
+  <arg name="backend" default="simulation"/>
+  <arg name="mcu_ip" default="192.168.123.110"/>
+  <arg name="local_port" default="8881"/>
+  <arg name="hardware_validated" default="false"/>
+  <arg name="config" default="$(find z1_bringup)/config/control.yaml"/>
+  <arg name="model_file" default="$(find z1_description)/urdf/z1_control.urdf"/>
+  <arg name="description_file" default="$(find z1_description)/urdf/z1.urdf.xacro"/>
+  <group ns="$(arg namespace)">
+    <param name="robot_description" command="$(find xacro)/xacro '$(arg description_file)' prefix:=$(arg prefix)"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="state_publisher" output="screen"/>
+    <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen" required="false">
+      <rosparam command="load" file="$(arg config)"/>
+      <param name="model_file" value="$(arg model_file)"/>
+      <param name="joint_prefix" value="$(arg prefix)"/>
+      <param name="backend" value="$(arg backend)"/>
+      <param name="mcu_ip" value="$(arg mcu_ip)"/>
+      <param name="local_port" value="$(arg local_port)" type="int"/>
+      <param name="hardware_validated" value="$(arg hardware_validated)" type="bool"/>
+    </node>
+  </group>
+</launch>
