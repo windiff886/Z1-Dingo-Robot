@@ -2,7 +2,7 @@
 <package format="2">
   <name>dingo_description</name>
   <version>0.3.1</version>
-  <description>URDF description of the Clearpath Dingo base mobile platform</description>
+  <description>URDF description of the Clearpath Dingo-O omnidirectional mobile platform</description>
   <maintainer email="tbaltovski@clearpathrobotics.com">Tony Baltovski</maintainer>
 
   <license>BSD</license>
@@ -10,9 +10,5 @@
   <author email="tbaltovski@clearpathrobotics.com">Tony Baltovski</author>
 
   <buildtool_depend>catkin</buildtool_depend>
-  <exec_depend>urdf</exec_depend>
   <exec_depend>xacro</exec_depend>
-
-  <export>
-  </export>
 </package>

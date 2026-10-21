@@ -15,11 +15,28 @@ namespace detail {
 
 using Clock = std::chrono::steady_clock;
 
-// This signal also works before the capture thread has been started.
+// 即使在采集线程启动前，该信号也能安全生效。
+/**
+ * @brief 可取消等待与安全停机同步信号类
+ * 
+ * 结合 std::atomic、std::mutex 与 std::condition_variable，
+ * 既支持低开销无锁查询停机状态，又支持可被停机请求随时打断的高精度定时等待，
+ * 避免无脑 sleep 导致析构卡顿与线程假死。
+ */
 class StopSignal {
  public:
+  /**
+   * @brief 查询当前是否已收到停机请求
+   * @return true 已请求停机；false 正常运行中
+   */
   bool Requested() const { return requested_.load(); }
 
+  /**
+   * @brief 发出停机请求并广播唤醒所有等待中的线程
+   * 
+   * 在互斥锁保护下将 requested_ 置为 true（防止丢失唤醒），
+   * 并在锁外调用 notify_all 唤醒所有挂起的等待线程以减少锁竞争。
+   */
   void Request() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -28,6 +45,13 @@ class StopSignal {
     condition_.notify_all();
   }
 
+  /**
+   * @brief 在指定截止时间点前挂起等待，可被停机信号随时打断
+   * 
+   * @param deadline 单调时钟截止时间点
+   * @return true 超时唤醒且未收到停机请求（可继续运行）；
+   *         false 收到停机请求提前中断（应退出工作循环）
+   */
   bool WaitUntil(Clock::time_point deadline) {
     std::unique_lock<std::mutex> lock(mutex_);
     condition_.wait_until(lock, deadline, [this] { return Requested(); });
@@ -35,9 +59,9 @@ class StopSignal {
   }
 
  private:
-  std::atomic<bool> requested_{false};
-  std::mutex mutex_;
-  std::condition_variable condition_;
+  std::atomic<bool> requested_{false};  ///< 是否已发出停机请求的原子标志位
+  std::mutex mutex_;                    ///< 保护条件变量与状态变更的互斥锁
+  std::condition_variable condition_;   ///< 用于可中断休眠与唤醒的条件变量
 };
 
 struct Timestamp {

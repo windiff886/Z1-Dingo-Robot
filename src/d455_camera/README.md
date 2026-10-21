@@ -2,6 +2,8 @@
 
 Intel RealSense D455 深度相机的 ROS 1 驱动封装。
 
+本驱动按单相机场景设计，启动和重连时自动选择当前连接的设备，无需配置序列号。
+
 ## 原理
 
 基于 Intel RealSense SDK 2.0 (librealsense2)，通过 USB 3.0 连接 D455 相机，采集彩色流与深度流。通过 SDK 官方 `rs2::align(RS2_STREAM_COLOR)` 将深度图实时对齐到目标彩色相机视角，并发布对应的共享内参信息。
@@ -60,7 +62,6 @@ rosrun d455_camera d455_camera_node __ns:=my_d455
 
 | C++ 变量名 | 类型 | 默认值 | 说明与校验 |
 |---|---|---|---|
-| `serial_no` | std::string | `""` | 指定相机序列号（为空时自动绑定首个可用设备并在运行期锁定） |
 | `enable_color` | bool | `true` | 是否启用彩色流（必须为 true，不支持单流运行） |
 | `enable_depth` | bool | `true` | 是否启用深度流（必须为 true，不支持单流运行） |
 | `color_width` | int | `640` | 彩色图像宽度（必须为正整数） |
@@ -81,7 +82,7 @@ rosrun d455_camera d455_camera_node __ns:=my_d455
 
 采集和预热使用 `poll_for_frames()` 配合可取消等待，避免 SDK 的等待接口隐式重启 pipeline。重复帧、无效时间戳、无帧、SDK 异常或持续对齐失败均受双流停滞检测约束；时间域丢失、帧号重置或明显时间回退立即进入恢复。
 
-首次选中的相机序列号会固定下来，恢复时不会切换到另一台相机。每次恢复都会重新准备 global time、profile、CameraInfo、深度单位和 align，并清空帧去重状态。重试耗尽后停止采集、释放 pipeline 并输出错误日志；需要卸载/重新加载驱动才会再次尝试，不关闭整个 nodelet manager。
+启动和恢复时会先检查是否有相机连接。每次恢复都会重新准备 global time、profile、CameraInfo、深度单位和 align，并清空帧去重状态。重试耗尽后停止采集、释放 pipeline 并输出错误日志；需要卸载/重新加载驱动才会再次尝试，不关闭整个 nodelet manager。
 
 预热、轮询和退避可响应停止请求。SDK 自身的设备枚举、配置解析、启动及停止可能阻塞，`frame_wait_timeout_ms` 不代表整个卸载的耗时上限。
 

@@ -44,12 +44,7 @@
     <arg name="enable_teleop" value="$(arg joystick)" />
   </include>
 
-  <group if="$(optenv DINGO_OMNI 1)">
-    <rosparam command="load" file="$(find dingo_gazebo)/config/gains_omni.yaml" />
-  </group>
-  <group unless="$(optenv DINGO_OMNI 1)">
-    <rosparam command="load" file="$(find dingo_gazebo)/config/gains_diff.yaml" />
-  </group>
+  <rosparam command="load" file="$(find dingo_gazebo)/config/gains_omni.yaml" />
 
   <!-- Spawn robot -->
   <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model"

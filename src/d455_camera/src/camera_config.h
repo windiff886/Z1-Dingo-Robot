@@ -16,14 +16,6 @@ namespace d455_camera {
  */
 struct CameraConfig {
   /**
-   * @brief 相机硬件序列号 (Serial Number)
-   * 规则：
-   * - 为空字符串 "" 时：自动枚举并绑定系统检测到的首个 D455 设备，并在运行期锁定该设备；
-   * - 传具体字符串（如 "141322251234"）时：精准绑定指定硬件，未检测到则报错退出。
-   */
-  std::string serial_no = "";
-
-  /**
    * @brief 数据流使能开关
    * 规则：
    * - enable_color 和 enable_depth 均必须为 true；

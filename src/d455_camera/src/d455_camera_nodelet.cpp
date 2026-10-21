@@ -101,14 +101,10 @@ class D455CameraNodelet : public nodelet::Nodelet {
 
   /**
    * @brief 构建 Librealsense 启动配置对象
-   * @param serial 目标相机硬件序列号（若为空则自动匹配）
    * @return 配置好的 rs2::config 对象
    */
-  rs2::config MakeConfig(const std::string &serial) const {
+  rs2::config MakeConfig() const {
     rs2::config config;
-    if (!serial.empty()) {
-      config.enable_device(serial);
-    }
     config.enable_stream(RS2_STREAM_COLOR, config_.color_width, config_.color_height,
                          RS2_FORMAT_BGR8, config_.color_fps);
     config.enable_stream(RS2_STREAM_DEPTH, config_.depth_width, config_.depth_height,
@@ -117,44 +113,39 @@ class D455CameraNodelet : public nodelet::Nodelet {
   }
 
   /**
-   * @brief 初始化相机 Pipeline 并锁定设备
-   * 
-   * 步骤：
-   * 1. 查找并锁定目标相机序列号（防止重连时误切其他设备）；
-   * 2. 在传感器层面开启硬件时间关联宿主机时钟的 GLOBAL_TIME；
-   * 3. 启动 pipeline 并获取彩色流内参；
-   * 4. 读取深度相机的深度比例因子（depth scale）；
-   * 5. 创建空间对齐器（rs2::align 到彩色视点）；
-   * 6. 执行 Warmup 预热，获取就绪帧并发布初始 CameraInfo。
+   * @brief 初始化单台相机的 Pipeline
+   *
+   * 调用场景：
+   * 1. 节点启动首次初始化（由 onInit() 调用）；
+   * 2. 硬件断流或异常自愈重连（由 RecoverPipeline() 反复重试调用）。
+   *
+   * 核心处理步骤：
+   * 1. 活跃状态前置防御检查（若节点正被关闭或重连期间收到退出信号，则快速失败退出）；
+   * 2. 检查相机是否已连接，并解析数据流配置；
+   * 3. 在底层传感器层面开启硬件时间关联宿主机时钟的 GLOBAL_TIME；
+   * 4. 启动 pipeline 并获取实际激活的设备；
+   * 5. 提取彩色相机内参并校验深度传感器的深度比例因子（depth scale）；
+   * 6. 创建空间对齐器（rs2::align 到彩色视点）；
+   * 7. 执行 Warmup 预热丢弃不稳定初始帧，获取第一组有效帧并发布初始 CameraInfo。
    */
   void InitializePipeline() {
+    // 1. 防御性前置检查：若 ROS 正在关闭（Ctrl+C）或已收到停机请求（如自愈重连期间退出），立即取消并快速失败
     if (!Active()) {
       throw std::runtime_error("Camera initialization cancelled.");
     }
-    const std::string requested_serial =
-        locked_serial_no_.empty() ? config_.serial_no : locked_serial_no_;
-    // Avoid entering the SDK's device wait when the locked device is absent.
-    bool device_present = false;
-    for (auto device : context_.query_devices()) {
-      if (device.supports(RS2_CAMERA_INFO_SERIAL_NUMBER) &&
-          (requested_serial.empty() ||
-           requested_serial == device.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER))) {
-        device_present = true;
-        break;
-      }
-    }
-    if (!device_present) {
-      throw std::runtime_error("Requested RealSense device is not connected: " + requested_serial);
+
+    // 2. 设备存在性预检：相机掉线时直接报错，避免进入 SDK 的设备等待
+    if (context_.query_devices().size() == 0) {
+      throw std::runtime_error("RealSense camera is not connected.");
     }
 
-    rs2::config config = MakeConfig(requested_serial);
-    auto resolved = config.resolve(pipeline_);
-    auto device = resolved.get_device();
-    const std::string selected_serial = device.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
-    // Pin the selected device before start, even on the first automatic selection.
-    config = MakeConfig(selected_serial);
-    config.resolve(pipeline_);
+    // 3. 解析数据流配置，自动选择当前连接的唯一相机
+    rs2::config config = MakeConfig();
+    auto device = config.resolve(pipeline_).get_device();
+
+    // 4. 遍历传感器：强制开启彩色与深度相机的 GLOBAL_TIME 硬件时钟对齐
     for (auto sensor : device.query_sensors()) {
+      // 过滤：只挑出负责出彩色图和深度图的传感器，略过 IMU
       bool used_by_rgbd = false;
       for (auto profile : sensor.get_stream_profiles()) {
         if (profile.stream_type() == RS2_STREAM_COLOR ||
@@ -166,46 +157,53 @@ class D455CameraNodelet : public nodelet::Nodelet {
       if (!used_by_rgbd) {
         continue;
       }
+      // 将深度传感器和彩色传感器的“全局时间对齐开关”全部强行拨到 1.0f (开启)
       if (!sensor.supports(RS2_OPTION_GLOBAL_TIME_ENABLED)) {
         throw std::runtime_error("An RGBD sensor does not support GLOBAL_TIME.");
       }
       sensor.set_option(RS2_OPTION_GLOBAL_TIME_ENABLED, 1.0f);
     }
+
+    // 5. 复核活跃状态后启动流水线，并获取实际激活的设备
     if (!Active()) {
       throw std::runtime_error("Camera initialization cancelled.");
     }
     pipeline_profile_ = pipeline_.start(config);
     pipeline_started_ = true;
     device = pipeline_profile_.get_device();
-    if (selected_serial != device.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER)) {
-      throw std::runtime_error("Pipeline started on an unexpected device.");
-    }
 
+    // 6. 读取相机几何内参并填充 ROS CameraInfo 消息结构
     sensor_msgs::CameraInfo info;
     auto color_profile =
         pipeline_profile_.get_stream(RS2_STREAM_COLOR).as<rs2::video_stream_profile>();
     FillCameraInfo(color_profile.get_intrinsics(), &info);
+
+    // 7. 读取深度传感器的单位比例因子（米/单位，通常为 0.001 即 1mm）
     const float depth_units = device.first<rs2::depth_sensor>().get_depth_scale();
     if (!std::isfinite(depth_units) || depth_units <= 0.0f) {
       throw std::runtime_error("Invalid depth scale reported by depth sensor.");
     }
+
+    // 8. 创建深度图对齐到彩色相机坐标系的图像对齐处理器
     std::unique_ptr<rs2::align> align(new rs2::align(RS2_STREAM_COLOR));
+
+    // 9. 执行预热（Warmup）：丢弃初始未同步帧，等待第一组就绪的全局时间戳 RGB-D 帧
     const rs2::frameset ready_frames = Warmup();
     if (!Active()) {
       throw std::runtime_error("Camera initialization cancelled.");
     }
+
+    // 10. 提交就绪状态：更新 CameraInfo、重置时序监控看门狗并发布初始标定话题
     info.header.frame_id = config_.color_frame_id;
     info.header.stamp = FrameStamp(ready_frames.get_color_frame());
     color_info_ = info;
     depth_units_ = depth_units;
     align_ = std::move(align);
-    locked_serial_no_ = selected_serial;
     const auto now = detail::Clock::now();
     color_progress_.Reset(now);
     depth_progress_.Reset(now);
     camera_info_pub_.publish(color_info_);
-    NODELET_INFO("D455 pipeline ready on serial %s (depth scale %.9f m).",
-                 locked_serial_no_.c_str(), depth_units_);
+    NODELET_INFO("D455 pipeline ready (depth scale %.9f m).", depth_units_);
   }
 
   /**
@@ -318,26 +316,35 @@ class D455CameraNodelet : public nodelet::Nodelet {
   /**
    * @brief 后台采集工作线程主循环
    * 
-   * 职责：
-   * 1. 看门狗监测：检查 RGB 或深度流是否超出 capture_stall_timeout 未出新帧，超时则触发自愈；
-   * 2. 轮询取帧：单次等待 frame_wait_timeout_ms；
-   * 3. 数据分发：调用 ProcessFrames 对帧组进行处理与话题发布。
+   * 线程职责：
+   * 1. 看门狗监测：实时检查 RGB 或深度流是否超出 capture_stall_timeout 发生断流停滞，超时则自动触发流水线重连自愈；
+   * 2. 轮询取帧：在 frame_wait_timeout_ms 窗口内可中断等待硬件帧就绪；
+   * 3. 数据分发：调用 ProcessFrames 对帧组进行空间对齐与 ROS 话题发布；
+   * 4. 节流防忙等：通过微秒级可取消休眠防止连续无效输入导致 CPU 满载；
+   * 5. 异常安全保障：声明为 noexcept 并顶层拦截一切异常，杜绝子线程崩溃引发进程闪退。
    */
   void CaptureLoop() noexcept {
     try {
+      // 1. 核心工作循环：持续运转直到收到主动停机信号或 ROS 关闭
       while (Active()) {
-        // Every path returns here, including duplicate/invalid frames and failed alignment.
         const auto now = detail::Clock::now();
+
+        // 2. 数据流断流看门狗检测：若彩色流或深度流停滞未更新有效帧超过阈值，主动尝试自愈
         if (color_progress_.Stalled(now, config_.capture_stall_timeout) ||
             depth_progress_.Stalled(now, config_.capture_stall_timeout)) {
           NODELET_WARN("RGB or aligned depth stopped producing valid new frames. Recovering...");
+          // 若自愈重试达到最大次数依然失败，则跳出循环结束采集
           if (!RecoverPipeline()) {
             break;
           }
         }
+
+        // 3. 计算本轮单帧获取的单调时钟截止时间
         rs2::frameset frames;
         const auto deadline =
             detail::Clock::now() + std::chrono::milliseconds(config_.frame_wait_timeout_ms);
+
+        // 4. 轮询获取帧组并执行对齐与发布（捕获 RealSense SDK 运行时异常以防单帧错误破坏循环）
         try {
           if (WaitForFrames(&frames, deadline)) {
             ProcessFrames(frames);
@@ -345,7 +352,8 @@ class D455CameraNodelet : public nodelet::Nodelet {
         } catch (const rs2::error &e) {
           NODELET_WARN_THROTTLE(1.0, "Frame processing failed: %s", e.what());
         }
-        // Also throttle immediate SDK errors and continuously invalid input.
+
+        // 5. 节流防忙等：让出 1ms CPU 时间，即使遭遇连续无效帧或瞬时错误也不会吃满单核 CPU，同时可被停机信号即刻打断
         stop_signal_.WaitUntil(detail::Clock::now() + std::chrono::milliseconds(1));
       }
     } catch (const std::exception &e) {
@@ -353,6 +361,8 @@ class D455CameraNodelet : public nodelet::Nodelet {
     } catch (...) {
       NODELET_FATAL("Capture halted by unknown exception.");
     }
+
+    // 6. 异常退出联动清理：无论何种原因退出工作循环，均广播停机信号并关闭底层相机流水线
     stop_signal_.Request();
     StopPipeline();
   }
@@ -560,7 +570,6 @@ class D455CameraNodelet : public nodelet::Nodelet {
 
   // --- 配置与设备属性 ---
   CameraConfig config_;                                 ///< 相机 C++ 配置参数
-  std::string locked_serial_no_;                        ///< 当前锁定的相机硬件序列号
   float depth_units_ = 0.001f;                          ///< 深度原始单位（米/单位，默认 1mm）
 
   // --- ROS 话题发布者 ---

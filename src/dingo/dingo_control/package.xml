@@ -14,7 +14,6 @@
   <!-- Runtime dependencies -->
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
-  <exec_depend>diff_drive_controller</exec_depend>
   <exec_depend>dingo_base</exec_depend>
   <exec_depend>dingo_description</exec_depend>
   <exec_depend>dingo_msgs</exec_depend>

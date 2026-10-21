@@ -40,11 +40,10 @@ roslaunch whole_body_example keyboard_teleop.launch mode:=real
 
 ```bash
 # 真机
-export DINGO_OMNI=1
-roslaunch dingo_base base.launch
+roslaunch dingo_control dingo.launch
 
-# 仿真
-roslaunch dingo_gazebo dingo_world.launch
+# 仿真（外部 dingo_gazebo 包仍需显式选择全向底盘）
+DINGO_OMNI=1 roslaunch dingo_gazebo dingo_world.launch
 ```
 
 ### 机械臂（Z1）

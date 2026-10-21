@@ -1,13 +1,6 @@
 <launch>
-  <arg name="dingo_omni" default="$(optenv DINGO_OMNI 1)" doc="Omnidirectional base (1) or differential (0)" />
-
-  <!-- Load controller parameters for velocity controller and joint publisher -->
-  <group if="$(arg dingo_omni)">
-    <rosparam command="load" file="$(find dingo_control)/config/control_omni.yaml" />
-  </group>
-  <group unless="$(arg dingo_omni)">
-    <rosparam command="load" file="$(find dingo_control)/config/control_diff.yaml" />
-  </group>
+  <!-- Load Dingo-O velocity controller and joint publisher parameters -->
+  <rosparam command="load" file="$(find dingo_control)/config/control_omni.yaml" />
 
   <!-- Spawn controllers -->
   <node name="controller_spawner" pkg="controller_manager" type="spawner"

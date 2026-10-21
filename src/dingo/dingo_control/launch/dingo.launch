@@ -1,6 +1,5 @@
 <launch>
-  <!-- Configuration & Chassis Type -->
-  <arg name="dingo_omni" default="$(optenv DINGO_OMNI 1)" doc="Omnidirectional base (1) or differential (0)" />
+  <!-- Dingo-O Hardware Configuration -->
   <arg name="motor_params" default="$(optenv DINGO_MOTOR_PARAMS base)" doc="Motor parameter profile from config/hardware/" />
   <arg name="wireless_interface" default="$(optenv DINGO_WIRELESS_INTERFACE wlp2s0)" doc="Wireless interface for diagnostic reporting" />
 
@@ -29,17 +28,16 @@
   <arg name="imu_yaw" default="0" />
 
   <!-- 1. Base Robot Model Description -->
-  <include if="$(arg load_description)" file="$(find dingo_description)/launch/description.launch">
-    <arg name="dingo_omni" value="$(arg dingo_omni)" />
-  </include>
+  <param if="$(arg load_description)" name="robot_description"
+         command="$(find xacro)/xacro '$(find dingo_description)/urdf/dingo.urdf.xacro'" />
 
   <!-- 2. Serial Message Info Service -->
   <node pkg="rosserial_python" type="message_info_service.py" name="rosserial_message_info" />
 
   <!-- 3. Chassis Hardware Driver Node -->
   <node pkg="dingo_base" type="dingo_node" name="dingo_node" output="screen">
-    <param name="dingo_omni" type="bool" value="$(arg dingo_omni)" />
     <rosparam command="load" file="$(find dingo_control)/config/hardware/$(arg motor_params).yaml" />
+    <param name="dingo_omni" type="bool" value="true" />
     <param name="wireless_interface" value="$(arg wireless_interface)" />
 
     <!-- Connect velocity controller input and raw wheel odometry to configured topics -->
@@ -50,9 +48,7 @@
   </node>
 
   <!-- 4. Controllers (Joint States & Velocity Controller) -->
-  <include file="$(find dingo_control)/launch/control.launch">
-    <arg name="dingo_omni" value="$(arg dingo_omni)" />
-  </include>
+  <include file="$(find dingo_control)/launch/control.launch" />
 
   <!-- 5. Chassis IMU Static Transform (base_link to imu_link) -->
   <node if="$(arg publish_imu_tf)" pkg="tf2_ros" type="static_transform_publisher"
