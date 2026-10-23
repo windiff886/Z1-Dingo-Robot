@@ -1,16 +1,9 @@
-# Default Dingo motor parameter profile.
-#
-# This file is intentionally left empty.
-#
-# In dingo.launch, the default `motor_params` argument resolves to `base`, and
-# the driver node loads:
-#   $(find dingo_control)/config/hardware/$(arg motor_params).yaml
-#
-# For the `base` profile we intentionally do not override the chassis driver's
-# built-in defaults. This allows the underlying `dingo_base` driver to use its
-# native default motor/encoder settings when no explicit hardware profile is
-# selected.
-#
-# If you need to tune motor parameters for a specific hardware revision, create
-# a dedicated profile such as `motors-mmp-s14.yaml` and pass it through the
-# `motor_params` launch argument instead of editing this default profile.
+# Standard motor parameters for this project's fixed Dingo-O hardware.
+# Loaded into the dingo_node private namespace by dingo.launch.
+gear_ratio: 24.0
+encoder_cpr: 10
+flip_motor_direction: false
+gains:
+  p: 0.025
+  i: 0.005
+  d: 0.0

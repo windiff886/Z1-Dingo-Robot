@@ -1,89 +1,61 @@
-# Dingo 底盘组件
+# Dingo-O 底盘启动说明
 
-本项目固定使用 Dingo-O 四轮全向底盘，使用 ROS 1 Noetic。组件接收速度命令、读取底盘反馈，并发布融合后的运动状态。
+本目录提供 ROS 1 Noetic 下 Dingo-O 四轮全向底盘的驱动、控制、模型和里程计融合功能。
 
-## 1. 当前功能
+## 唯一启动入口
 
-| 功能 | 文件位置 | 说明 |
-| --- | --- | --- |
-| 底盘驱动与控制 | `dingo_control/launch/`、`config/control_omni.yaml` | 调用官方驱动，固定使用四轮麦克纳姆控制器 |
-| 通信工具 | `dingo_control/scripts/can-udp-bridge.sh`、`deployment/` | CAN/UDP 桥接脚本及 systemd 服务模板；默认连接 `192.168.131.2:11412`，提供 `vcan0` 接口 |
-| EKF 滤波融合 | `dingo_control/config/robot_localization.yaml` | 融合轮式里程计的前向速度、侧向速度和旋转角速度，以及 IMU 的旋转角速度 |
-| 反馈监测 | `dingo_control/scripts/feedback_monitor.py` | 检查输入和输出的时效、数值、协方差与坐标变换，发布诊断 |
-| 底盘描述 | `dingo_description/urdf/dingo.urdf.xacro`、`meshes/` | 全向底盘的几何、四轮关节和挂载点；保留底盘外观与碰撞网格，轮子使用圆柱体描述 |
-
-实际驱动 `dingo_base`、消息包 `dingo_msgs` 和控制器插件由运行环境提供。本目录不包含完整的底层通信协议实现，也不提供遥操作、导航或整机仿真。
-
-当前使用 `robot_localization` 的 EKF，不启动 Madgwick IMU 姿态滤波，也不融合 IMU 姿态和线加速度。
-
-## 2. Topic 接口
-
-方向以本组件为准；下表为默认名称。
-
-| Topic | 方向 | 消息类型 | 用途 |
-| --- | --- | --- | --- |
-| `/dingo/cmd_vel` | 输入 | `geometry_msgs/Twist` | 底盘速度命令 |
-| `/dingo/odom` | 输出 | `nav_msgs/Odometry` | EKF 融合后的主要运动状态，配置频率 50 Hz |
-| `/dingo/odom_raw` | 输出 | `nav_msgs/Odometry` | 未经本地 EKF 的轮式里程计，同时作为 EKF 输入 |
-| `/dingo/imu/data_raw` | 输出 | `sensor_msgs/Imu` | 底盘原始 IMU 数据，同时作为 EKF 输入 |
-| `/joint_states` | 输出 | `sensor_msgs/JointState` | 轮子关节反馈，配置频率 200 Hz |
-| `/diagnostics` | 输出 | `diagnostic_msgs/DiagnosticArray` | EKF 及反馈有效性诊断，反馈监测频率 10 Hz |
-
-命令使用 `linear.x`（前向，m/s）、`linear.y`（侧向，m/s）和 `angular.z`（旋转，rad/s）。全向底盘支持侧移；控制器的命令超时设为 0.25 秒。
-
-主要反馈从 `/dingo/odom` 读取：
-
-```text
-twist.twist.linear.x    前向速度，m/s
-twist.twist.linear.y    侧向速度，m/s
-twist.twist.angular.z   旋转角速度，rad/s
-```
-
-其 `header.frame_id` 为 `odom`，`child_frame_id` 为 `base_link`：位置和姿态在 `odom` 坐标系下，速度在 `base_link` 坐标系下。位置与航向是局部估计，会随时间漂移。
-
-输入中断时 EKF 仍可能持续发布预测，因此需同时检查 `/diagnostics` 中的 `dingo/feedback`：
-
-| 状态 | 含义 |
-| --- | --- |
-| `ready` | 轮式输入、IMU 输入和融合输出均通过监测 |
-| `wheel_only` | 融合输出通过监测，仅轮式输入通过监测 |
-| `imu_only` | 融合输出通过监测，仅 IMU 输入通过监测，线速度缺少有效轮式测量 |
-| `prediction_only` | 输出仍在发布，两路输入均未通过监测 |
-| `unavailable` | 融合输出未收到、过期或未通过检查 |
-
-各路超时阈值默认 0.2 秒。监测只报告状态，不修改 EKF 输出；使用方也需检查诊断消息本身是否过期。硬件状态消息类型为 `dingo_msgs/Status`，实际 topic 名称以目标机驱动为准。
-
-## 3. Launch 使用方法
-
-运行环境需安装官方驱动、控制器及 `robot_localization` 等依赖，并加载已构建工作空间的 `setup.bash`。使用 CAN/UDP 桥接的真机需先启动桥接服务；ROS launch 不会自动启动该服务。
+底盘的唯一启动入口是 [dingo_control/launch/dingo.launch](dingo_control/launch/dingo.launch)：
 
 ```bash
-# 启动全向底盘：驱动、控制器、模型加载、IMU 静态 TF、EKF 和反馈监测
 roslaunch dingo_control dingo.launch
-
-# 需要里程计 TF 时，由 EKF 发布 odom -> base_link
-roslaunch dingo_control dingo.launch publish_odom_tf:=true
-
-# 自定义命令和融合反馈 topic
-roslaunch dingo_control dingo.launch \
-  cmd_vel_topic:=/my_robot/cmd_vel odom_topic:=/my_robot/odom
 ```
 
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `motor_params` | `DINGO_MOTOR_PARAMS` 环境变量，未设置时为 `base` | `config/hardware/` 中的配置名；`base` 使用驱动默认参数 |
-| `cmd_vel_topic`、`odom_topic`、`odom_raw_topic`、`imu_raw_topic`、`diagnostics_topic` | 上表中的默认名称 | 修改对应 topic，内部融合和监测同步使用新名称 |
-| `ekf_config` | 本包 `config/robot_localization.yaml` | EKF 参数文件 |
-| `wheel_timeout`、`imu_timeout`、`odom_timeout` | 各 `0.2` 秒 | 各路反馈监测超时阈值 |
-| `load_description` | `true` | 加载 `robot_description`；外部已提供兼容模型时设为 `false` |
-| `publish_odom_tf` | `false` | 是否由 EKF 发布 `odom -> base_link` |
-| `publish_imu_tf` | `true` | 是否发布 `base_link -> imu_link` 静态变换；外部已提供时设为 `false` |
-| `imu_frame` | `imu_link` | 与原始 IMU 的 `header.frame_id` 一致 |
-| `imu_x`、`imu_y`、`imu_z` | 各 `0` 米 | IMU 相对 `base_link` 的安装位置 |
-| `imu_roll`、`imu_pitch`、`imu_yaw` | 各 `0` 弧度 | IMU 相对 `base_link` 的安装角度 |
+启动前，安装包清单中的依赖，构建工作空间并加载 `devel/setup.bash`，同时完成主机与 MCU 的网络连接和 CAN/UDP 桥接。主机地址为 `192.168.131.1`，MCU 地址为 `192.168.131.2`；桥接服务建立 `vcan0`，供底盘驱动访问电机。
 
-IMU 安装变换需按实机核实；若传感器轴与底盘轴不对齐，也需调整 EKF 的轴选择。
+桥接由系统服务管理，部署文件见 [can-udp-bridge.service](dingo_control/deployment/can-udp-bridge.service) 和 [can-udp-bridge.sh](dingo_control/scripts/can-udp-bridge.sh)。`dingo.launch` 启动 ROS 底盘组件，桥接服务需事先运行。
 
-底盘模型由 `dingo.launch` 在 `load_description:=true` 时直接加载；`dingo_description` 仅提供 URDF 和网格资源。模型加载仅设置 `robot_description` 参数，不启动 `robot_state_publisher`。
+## 这个入口启动什么
 
-模型和控制器固定使用全向配置，无需传入车型选择参数。底层官方驱动的 `dingo_omni` 参数由 `dingo.launch` 显式设置为 `true`。
+### 1. 加载底盘模型
+
+通过 Xacro 生成 [Dingo URDF](dingo_description/urdf/dingo.urdf.xacro)，写入 `robot_description`，提供底盘结构、四轮关节和安装坐标系的定义。
+
+这里只加载模型参数，`robot_state_publisher` 由整机启动层启动。整机已经加载完整模型时，设置 `load_description:=false`。
+
+### 2. 启动底盘驱动和 MCU 通信
+
+启动 `dingo_base` 的 `dingo_node`，并加载 [电机参数](dingo_control/config/hardware/base.yaml)。驱动通过 `vcan0` 配置和控制四个 Puma 电机，读取车轮反馈；通过 rosserial 接收 MCU 提供的 IMU 与底盘状态，同时接收 MCU 日志。
+
+入口还启动 rosserial 消息信息服务，供 MCU 通信使用。灯光控制、风扇控制、底盘及电机状态诊断也在 `dingo_node` 中运行。
+
+### 3. 加载四轮控制器
+
+入口内部包含 [control.launch](dingo_control/launch/control.launch)，读取 [控制器配置](dingo_control/config/control_omni.yaml)，由控制器加载器将两个控制器加载到 `dingo_node` 内的 `controller_manager`：
+
+- **关节状态控制器**：发布四个车轮的关节状态。
+- **麦克纳姆速度控制器**：把底盘的前向、侧向和旋转速度指令换算为四轮速度，并根据车轮反馈计算轮式里程计。
+
+驱动以 25 Hz 读取车轮状态、更新控制器并发送电机命令。`control.launch` 是内部使用的子启动文件，日常启动只使用 `dingo.launch`。
+
+### 4. 发布 IMU 安装变换
+
+默认发布 `base_link → imu_link` 静态变换，描述 IMU 相对底盘的位置和朝向。默认位置和角度均为零，可通过 `imu_x/y/z`、`imu_roll/pitch/yaw` 参数设置。
+
+整机已经发布该变换时，设置 `publish_imu_tf:=false`。
+
+### 5. 融合底盘运动状态
+
+启动 `robot_localization` 的 EKF，加载 [融合配置](dingo_control/config/robot_localization.yaml)，在二维平面内融合：
+
+- 轮式里程计的前向速度、侧向速度和偏航角速度。
+- 底盘 IMU 的偏航角速度。
+
+EKF 以 50 Hz 输出融合后的底盘位姿与速度。默认不发布 `odom → base_link` 变换；需要由底盘 EKF 提供这一变换时，在同一个启动命令后加上 `publish_odom_tf:=true`。
+
+因此，底盘运行的主要逻辑是：速度指令经麦克纳姆控制器转为四轮电机命令；车轮反馈形成轮式里程计，再与 MCU 的 IMU 角速度融合，得到底盘运动状态。
+
+## 依赖与源码
+
+`dingo_base` 提供硬件驱动，`dingo_control` 组织启动与配置，`dingo_description` 提供模型，`dingo_msgs` 提供 MCU 状态、风扇和灯光消息。Puma 电机驱动及其消息包、麦克纳姆控制器插件和 ROS 通用组件由运行环境安装提供。
+
+`dingo_msgs` 版本为 `0.3.1`，引自官方 [dingo 仓库](https://github.com/dingo-cpr/dingo/tree/68806fdffabfd612a3414b7e8d6cb19c496f8a0e/dingo_msgs)，固定提交 `68806fdffabfd612a3414b7e8d6cb19c496f8a0e`。消息定义与构建文件保持上游原样，许可证见 [LICENSE](dingo_msgs/LICENSE)。

@@ -6,11 +6,8 @@ sensor_timeout: 0.2
 two_d_mode: true
 predict_to_current_time: true
 
-# By default, do NOT publish odom -> base_link TF. Controlled via launch argument publish_odom_tf.
-publish_tf: false
-
+# Input topics and publish_tf are set by dingo.launch.
 # Wheel odometry input (raw wheel odometry from velocity controller)
-odom0: /dingo/odom_raw
 # Configuration order:
 # [x,   y,   z,
 #  r,   p,   y,
@@ -25,7 +22,6 @@ odom0_config: [false, false, false,
 odom0_differential: false
 
 # Raw IMU input (direct angular velocity from chassis IMU without Madgwick)
-imu0: /dingo/imu/data_raw
 imu0_config: [false, false, false,
               false, false, false,
               false, false, false,

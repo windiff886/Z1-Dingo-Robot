@@ -2,7 +2,7 @@
 <package format="2">
   <name>dingo_control</name>
   <version>0.3.1</version>
-  <description>Controllers, motion state fusion, and launch orchestration for Clearpath Dingo chassis</description>
+  <description>Controllers, motion state fusion, launch orchestration, and CAN/UDP bridge deployment for Clearpath Dingo chassis</description>
   <maintainer email="tbaltovski@clearpathrobotics.com">Tony Baltovski</maintainer>
 
   <license>BSD</license>
@@ -13,23 +13,17 @@
 
   <!-- Runtime dependencies -->
   <exec_depend>controller_manager</exec_depend>
-  <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>dingo_base</exec_depend>
   <exec_depend>dingo_description</exec_depend>
-  <exec_depend>dingo_msgs</exec_depend>
   <exec_depend>joint_state_controller</exec_depend>
-  <exec_depend>nav_msgs</exec_depend>
   <exec_depend>ridgeback_control</exec_depend>
   <exec_depend>robot_localization</exec_depend>
-  <exec_depend>rospy</exec_depend>
   <exec_depend>rosserial_python</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>xacro</exec_depend>
   <exec_depend>can-utils</exec_depend>
   <exec_depend>iproute2</exec_depend>
   <exec_depend>socat</exec_depend>
-  <exec_depend>util-linux</exec_depend>
 
   <export>
   </export>

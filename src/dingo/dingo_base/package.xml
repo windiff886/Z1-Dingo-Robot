@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>dingo_base</name>
+  <version>0.3.2</version>
+  <description>Dingo's mobility and sensor base.</description>
+
+  <maintainer email="tbaltovski@clearpathrobotics.com">Tony Baltovski</maintainer>
+  <author email="tbaltovski@clearpathrobotics.com">Tony Baltovski</author>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>boost</depend>
+  <depend>controller_manager</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>dingo_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>hardware_interface</depend>
+  <depend>puma_motor_msgs</depend>
+  <depend>puma_motor_driver</depend>
+  <depend>roscpp</depend>
+  <depend>rosgraph_msgs</depend>
+  <depend>rosserial_server</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>roslint</test_depend>
+
+  <export>
+  </export>
+</package>

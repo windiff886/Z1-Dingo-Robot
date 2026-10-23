@@ -1,6 +1,5 @@
 <launch>
   <!-- Dingo-O Hardware Configuration -->
-  <arg name="motor_params" default="$(optenv DINGO_MOTOR_PARAMS base)" doc="Motor parameter profile from config/hardware/" />
   <arg name="wireless_interface" default="$(optenv DINGO_WIRELESS_INTERFACE wlp2s0)" doc="Wireless interface for diagnostic reporting" />
 
   <!-- Topic Interface Configurations -->
@@ -10,9 +9,6 @@
   <arg name="imu_raw_topic" default="/dingo/imu/data_raw" doc="Chassis IMU topic (sensor_msgs/Imu)" />
   <arg name="diagnostics_topic" default="/diagnostics" />
   <arg name="ekf_config" default="$(find dingo_control)/config/robot_localization.yaml" />
-  <arg name="wheel_timeout" default="0.2" />
-  <arg name="imu_timeout" default="0.2" />
-  <arg name="odom_timeout" default="0.2" />
 
   <!-- TF & Model Toggles -->
   <arg name="load_description" default="true" doc="Load base robot_description URDF parameter" />
@@ -36,8 +32,7 @@
 
   <!-- 3. Chassis Hardware Driver Node -->
   <node pkg="dingo_base" type="dingo_node" name="dingo_node" output="screen">
-    <rosparam command="load" file="$(find dingo_control)/config/hardware/$(arg motor_params).yaml" />
-    <param name="dingo_omni" type="bool" value="true" />
+    <rosparam command="load" file="$(find dingo_control)/config/hardware/base.yaml" />
     <param name="wireless_interface" value="$(arg wireless_interface)" />
 
     <!-- Connect velocity controller input and raw wheel odometry to configured topics -->
@@ -45,6 +40,7 @@
     <remap from="dingo_velocity_controller/odom" to="$(arg odom_raw_topic)" />
     <!-- Direct chassis IMU data stream -->
     <remap from="imu/data_raw" to="$(arg imu_raw_topic)" />
+    <remap from="diagnostics" to="$(arg diagnostics_topic)" />
   </node>
 
   <!-- 4. Controllers (Joint States & Velocity Controller) -->
@@ -63,17 +59,6 @@
     <param name="odom0" value="$(arg odom_raw_topic)" />
     <param name="imu0" value="$(arg imu_raw_topic)" />
     <remap from="odometry/filtered" to="$(arg odom_topic)" />
-    <remap from="diagnostics" to="$(arg diagnostics_topic)" />
-  </node>
-
-  <!-- Reports freshness without modifying or republishing odometry. -->
-  <node pkg="dingo_control" type="feedback_monitor.py" name="dingo_feedback_monitor" output="screen" required="true">
-    <param name="wheel_timeout" value="$(arg wheel_timeout)" type="double" />
-    <param name="imu_timeout" value="$(arg imu_timeout)" type="double" />
-    <param name="odom_timeout" value="$(arg odom_timeout)" type="double" />
-    <remap from="odom_raw" to="$(arg odom_raw_topic)" />
-    <remap from="imu_raw" to="$(arg imu_raw_topic)" />
-    <remap from="odom" to="$(arg odom_topic)" />
     <remap from="diagnostics" to="$(arg diagnostics_topic)" />
   </node>
 </launch>
