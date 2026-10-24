@@ -15,8 +15,8 @@ public:
 struct McuConfig {
   std::string ip{"192.168.123.110"};
   unsigned local_port{8881};
-  double period{0.004};
-  unsigned receive_budget_us{1500};
+  double period{0.002};
+  unsigned receive_budget_us{1000};
   bool hardware_validated{};
 };
 class McuTransport final : public Transport {

@@ -108,6 +108,9 @@ int main() {
     cfg.ip = "127.0.0.1";
     cfg.local_port = 0;
     cfg.hardware_validated = true;
+    // This codec/loopback test uses a generous receive window, independently
+    // of the production 2 ms control period.
+    cfg.period = 0.01;
     cfg.receive_budget_us = 5000;
     for (int version : {1, 2})
       for (int joints : {6, 7}) {

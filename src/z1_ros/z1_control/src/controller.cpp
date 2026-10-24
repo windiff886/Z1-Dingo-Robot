@@ -18,14 +18,55 @@ std::array<double, 6> array(const Vec &v) {
 Vec vector(const std::array<double, 6> &a) {
   return Eigen::Map<const Vec>(a.data());
 }
-bool moving(Mode m) {
+bool finiteMotion(Mode m) {
   return m == Mode::JointGoal || m == Mode::PoseGoal ||
-         m == Mode::JointStream || m == Mode::PoseStream ||
+         m == Mode::JointTrajectory || m == Mode::CartesianPath;
+}
+bool moving(Mode m) {
+  return finiteMotion(m) || m == Mode::JointStream || m == Mode::PoseStream ||
          m == Mode::Impedance;
 }
 bool streaming(Mode m) {
   return m == Mode::JointStream || m == Mode::PoseStream ||
          m == Mode::Impedance;
+}
+template <class Sample>
+bool geometryPathSafe(Sample sample, double end, const Config &config,
+                      Model &model, double margin, double budget,
+                      std::string *failure, const Vec &uncertainty,
+                      Clock::time_point started) {
+  auto fail = [failure](const std::string &reason) {
+    if (failure)
+      *failure = reason;
+    return false;
+  };
+  double at = 0;
+  const double acceleration = model.distanceMotionBound(config.acceleration);
+  for (unsigned count = 0; count < config.max_collision_samples; ++count) {
+    const auto point = sample(at);
+    if (!model.withinLimits(point.position))
+      return fail("trajectory sample outside joint limits");
+    if (seconds(started) > budget)
+      return fail("collision validation time budget exceeded");
+    const auto result = model.clearanceSample(point.position, uncertainty);
+    if (seconds(started) > budget)
+      return fail("collision validation time budget exceeded");
+    const double clearance = result.distance - margin;
+    if (clearance <= 0)
+      return fail("collision margin violated: " + std::string(result.pair));
+    if (at >= end)
+      return true;
+    const double speed = model.distanceMotionBound(point.velocity);
+    const double allowance = 0.8 * clearance;
+    const double step = std::min(
+        0.05,
+        2 * allowance /
+            (std::sqrt(speed * speed + 2 * acceleration * allowance) + speed));
+    if (step < 1e-6)
+      return fail("collision validation resolution limit");
+    at = std::min(end, at + step);
+  }
+  return fail("collision validation sample budget exceeded");
 }
 } // namespace
 ModelConfig defaultModelConfig(const std::string &path) {
@@ -42,7 +83,7 @@ ModelConfig defaultModelConfig(const std::string &path) {
 }
 Controller::Controller(ModelConfig m, Config c)
     : model_config_(m), config_(c), model_(m), planning_model_(m),
-      generator_(c.period) {
+      generator_(c.period), stiffness_(c.stiffness), damping_(c.damping) {
   if (!std::isfinite(c.period) || c.period < 0.001 || c.period > 0.02 ||
       !std::isfinite(c.feedback_timeout) || c.feedback_timeout < c.period ||
       !std::isfinite(c.stream_timeout) || c.stream_timeout < c.period ||
@@ -51,8 +92,17 @@ Controller::Controller(ModelConfig m, Config c)
       c.collision_warning <= c.collision_margin ||
       c.geometry_radius_bound < 1.5 ||
       !std::isfinite(c.geometry_radius_bound) || c.max_collision_samples == 0 ||
-      c.validation_budget <= 0 || c.lookahead_budget <= 0)
+      c.validation_budget <= 0 || c.lookahead_budget <= 0 ||
+      c.lookahead_budget >= c.period)
     throw std::invalid_argument("invalid timing/collision configuration");
+  for (double value : {c.reference_preview, c.reference_extrapolation,
+                       c.reference_velocity_filter, c.reference_horizon,
+                       c.impedance_gain_time_constant})
+    if (!std::isfinite(value) || value <= 0)
+      throw std::invalid_argument("invalid reference timing");
+  if (c.reference_preview > c.reference_extrapolation ||
+      c.reference_extrapolation > c.stream_timeout)
+    throw std::invalid_argument("reference prediction exceeds input validity");
   for (auto *v : {&c.velocity, &c.acceleration, &c.jerk, &c.torque,
                   &c.torque_rate, &c.kp, &c.kd, &c.stiffness, &c.damping})
     if (!v->allFinite() || (v->array() <= 0).any())
@@ -98,14 +148,15 @@ void Controller::event(uint64_t id, Outcome out, const std::string &why) {
   events_.push_back({id, out, why});
 }
 bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
-                          double budget, std::string *failure) {
+                          double budget, std::string *failure,
+                          const Vec &uncertainty) {
   auto fail = [failure](const std::string &reason) {
     if (failure)
       *failure = reason;
     return false;
   };
   auto start = Clock::now();
-  double at = 0, end = t.get_duration();
+  double end = t.get_duration();
   if (!std::isfinite(end) || end < 0)
     return fail("invalid trajectory duration");
   // On Ruckig 0.9.2 zero-duration profiles contain unspecified intermediate
@@ -164,40 +215,26 @@ bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
           if (p.t[i] > 0 && !segment(p.t[i], p.p[i], p.v[i], p.a[i], p.j[i]))
             return fail("trajectory polynomial outside joint limits");
       }
-  // Distance is Lipschitz bounded by two moving surfaces. Radius is validated
-  // at startup.
-  double radius = 2 * config_.geometry_radius_bound,
-         acceleration = config_.acceleration.sum();
-  for (unsigned count = 0; count < config_.max_collision_samples; ++count) {
-    std::array<double, 6> q, v, a;
-    t.at_time(at, q, v, a);
-    Vec qv = vector(q);
-    if (!model.withinLimits(qv))
-      return fail("trajectory sample outside joint limits");
-    if (seconds(start) > budget)
-      return fail("collision validation time budget exceeded");
-    auto result = model.clearance(qv);
-    if (seconds(start) > budget)
-      return fail("collision validation time budget exceeded");
-    double clearance = result.distance - margin;
-    if (clearance <= 0)
-      return fail("collision margin violated: " + result.pair);
-    if (at >= end)
-      return true;
-    double speed = vector(v).cwiseAbs().sum();
-    // Bound swept surface displacement using current speed and the configured
-    // acceleration bound.
-    double allowance = 0.8 * clearance / radius;
-    double step = std::min(
-        0.02,
-        2 * allowance /
-            (std::sqrt(speed * speed + 2 * acceleration * allowance) + speed));
-    if (step < 1e-6)
-      return fail("collision validation resolution limit");
-    at = std::min(end, at + step);
-  }
-  return fail("collision validation sample budget exceeded");
+  return geometryPathSafe(
+      [&t](double at) {
+        std::array<double, 6> q, v, a;
+        t.at_time(at, q, v, a);
+        TrajectorySample point;
+        point.position = vector(q);
+        point.velocity = vector(v);
+        point.acceleration = vector(a);
+        return point;
+      },
+      end, config_, model, margin, budget, failure, uncertainty, start);
 }
+bool Controller::pathSafe(const JointTrajectory &t, Model &model, double margin,
+                          double budget, std::string *failure,
+                          const Vec &uncertainty) {
+  return geometryPathSafe([&t](double at) { return t.sample(at); },
+                          t.duration(), config_, model, margin, budget, failure,
+                          uncertainty, Clock::now());
+}
+
 bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
                          double speed) {
   Vec seed;
@@ -260,6 +297,8 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
   last_goal_id_ = id;
   finite_ = candidate;
   duration_ = candidate.get_duration();
+  state_.trajectory_duration = duration_;
+  state_.trajectory_time_scale = 1;
   motion_at_ = last_step_;
   settled_at_ = 0;
   if (pose)
@@ -277,31 +316,184 @@ bool Controller::goal(uint64_t id, const Vec &q, double s) {
 bool Controller::poseGoal(uint64_t id, const Pose &p, double s) {
   return prepare(id, nullptr, &p, s);
 }
+bool Controller::preparePath(
+    uint64_t id,
+    const std::function<JointTrajectory(Model &, const Vec &, const Config &)>
+        &planner,
+    Mode mode, const Pose *endpoint) {
+  Vec seed;
+  Config limits;
+  uint64_t generation;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_.mode != Mode::Holding || id == 0 || id <= last_goal_id_) {
+      event(id, Outcome::Rejected,
+            "requires holding and increasing positive goal ID");
+      return false;
+    }
+    seed = reference_;
+    generation = generation_;
+    limits = config_;
+  }
+  // Polynomial construction, IK, retiming and whole-path geometry checks run
+  // on the caller's thread, with a separate model and no control mutex held.
+  std::lock_guard<std::mutex> planner_lock(planning_mutex_);
+  JointTrajectory candidate;
+  std::string reason;
+  bool okay = false;
+  try {
+    candidate = planner(planning_model_, seed, limits);
+    if (candidate.empty())
+      throw std::invalid_argument("empty trajectory");
+    const auto first = candidate.sample(0);
+    const auto last = candidate.sample(candidate.duration());
+    if ((first.position - seed).cwiseAbs().maxCoeff() > 1e-6 ||
+        first.velocity.cwiseAbs().maxCoeff() > 1e-8 ||
+        first.acceleration.cwiseAbs().maxCoeff() > 1e-8)
+      throw std::invalid_argument(
+          "trajectory must start at the resting reference");
+    if (last.velocity.cwiseAbs().maxCoeff() > 1e-8 ||
+        last.acceleration.cwiseAbs().maxCoeff() > 1e-8)
+      throw std::invalid_argument("finite trajectory must end at rest");
+    okay = pathSafe(candidate, planning_model_, limits.collision_margin + 0.01,
+                    limits.validation_budget, &reason);
+  } catch (const std::exception &error) {
+    reason = error.what();
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!okay) {
+    event(id, Outcome::Rejected, reason);
+    return false;
+  }
+  if (generation != generation_ || state_.mode != Mode::Holding ||
+      id <= last_goal_id_ || (reference_ - seed).norm() > 1e-6) {
+    event(id, Outcome::Rejected, "state changed during trajectory preparation");
+    return false;
+  }
+  std::swap(planned_, candidate);
+  duration_ = planned_.duration();
+  motion_at_ = last_step_;
+  settled_at_ = 0;
+  if (endpoint)
+    finite_pose_target_ = *endpoint;
+  last_goal_id_ = id;
+  state_.trajectory_duration = duration_;
+  state_.trajectory_time_scale = planned_.timeScale();
+  state_.active_id = id;
+  state_.mode = mode;
+  state_.reason = "executing prepared trajectory";
+  ++generation_;
+  event(id, Outcome::Accepted, "trajectory prepared and validated");
+  return true;
+}
+bool Controller::trajectory(uint64_t id,
+                            const std::vector<TrajectoryPoint> &points,
+                            bool retime) {
+  return preparePath(
+      id,
+      [&](Model &model, const Vec &seed, const Config &config) {
+        auto prepared = points;
+        if (!prepared.empty() && prepared.front().time_from_start > 0) {
+          TrajectoryPoint initial;
+          initial.position = seed;
+          initial.has_velocity = initial.has_acceleration = true;
+          prepared.insert(prepared.begin(), initial);
+        }
+        return JointTrajectory::timed(prepared, config, model.lower(),
+                                      model.upper(), retime);
+      },
+      Mode::JointTrajectory);
+}
+bool Controller::jointWaypoints(uint64_t id, const std::vector<Vec> &targets,
+                                double speed) {
+  return preparePath(
+      id,
+      [&](Model &model, const Vec &seed, const Config &config) {
+        if (targets.empty())
+          throw std::invalid_argument("joint waypoints are empty");
+        std::vector<Vec> points;
+        points.reserve(targets.size() + 1);
+        points.push_back(seed);
+        points.insert(points.end(), targets.begin(), targets.end());
+        return JointTrajectory::waypoints(points, config, model.lower(),
+                                          model.upper(), speed);
+      },
+      Mode::JointTrajectory);
+}
+bool Controller::moveL(uint64_t id, const Pose &target, double speed) {
+  LinearPathOptions options;
+  options.speed = speed;
+  return linearWaypoints(id, {target}, options);
+}
+bool Controller::linearWaypoints(uint64_t id, const std::vector<Pose> &targets,
+                                 const LinearPathOptions &options) {
+  return preparePath(
+      id,
+      [&](Model &model, const Vec &seed, const Config &config) {
+        return planLinearPath(model, seed, targets, config, options);
+      },
+      Mode::CartesianPath, targets.empty() ? nullptr : &targets.back());
+}
 bool Controller::stream(uint64_t session, uint64_t seq, const Vec &q,
                         double now) {
+  JointReference target;
+  target.time = now;
+  target.position = q;
+  return stream(session, seq, target, now);
+}
+bool Controller::stream(uint64_t session, uint64_t seq, const Pose &p,
+                        double now) {
+  CartesianReference target;
+  target.time = now;
+  target.pose = p;
+  return stream(session, seq, target, now);
+}
+bool Controller::stream(uint64_t session, uint64_t seq,
+                        const JointReference &target, double received_at) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (state_.mode != Mode::JointStream || session != state_.session ||
-      seq <= stream_sequence_ || !model_.withinLimits(q) ||
-      !std::isfinite(now) || now <= last_step_ - config_.stream_timeout ||
-      now > last_step_ + config_.feedback_timeout)
+      seq <= stream_sequence_ || !model_.withinLimits(target.position) ||
+      !std::isfinite(received_at) ||
+      received_at <= last_step_ - config_.stream_timeout ||
+      received_at > last_step_ + config_.feedback_timeout ||
+      !std::isfinite(target.time) || target.time < received_at ||
+      target.time > last_step_ + config_.reference_horizon ||
+      (target.has_velocity &&
+       (!target.velocity.allFinite() ||
+        (target.velocity.cwiseAbs().array() > config_.velocity.array())
+            .any())) ||
+      (target.has_acceleration &&
+       (!target.has_velocity || !target.acceleration.allFinite() ||
+        (target.acceleration.cwiseAbs().array() > config_.acceleration.array())
+            .any())))
     return false;
-  stream_q_ = q;
-  stream_at_ = now;
+  if (!joint_references_.push(target, config_.reference_velocity_filter))
+    return false;
+  stream_deadline_ =
+      std::max(received_at, target.time) + config_.stream_timeout;
   stream_sequence_ = seq;
   target_valid_ = true;
   resume_waiting_ = false;
   return true;
 }
-bool Controller::stream(uint64_t session, uint64_t seq, const Pose &p,
-                        double now) {
+bool Controller::stream(uint64_t session, uint64_t seq,
+                        const CartesianReference &target, double received_at) {
   std::lock_guard<std::mutex> lock(mutex_);
   if ((state_.mode != Mode::PoseStream && state_.mode != Mode::Impedance) ||
-      session != state_.session || seq <= stream_sequence_ || !validPose(p) ||
-      !std::isfinite(now) || now <= last_step_ - config_.stream_timeout ||
-      now > last_step_ + config_.feedback_timeout)
+      session != state_.session || seq <= stream_sequence_ ||
+      !validPose(target.pose) || !std::isfinite(received_at) ||
+      received_at <= last_step_ - config_.stream_timeout ||
+      received_at > last_step_ + config_.feedback_timeout ||
+      !std::isfinite(target.time) || target.time < received_at ||
+      target.time > last_step_ + config_.reference_horizon ||
+      (target.has_velocity && !target.velocity.allFinite()) ||
+      (target.has_acceleration &&
+       (!target.has_velocity || !target.acceleration.allFinite())))
     return false;
-  stream_pose_ = p;
-  stream_at_ = now;
+  if (!pose_references_.push(target, config_.reference_velocity_filter))
+    return false;
+  stream_deadline_ =
+      std::max(received_at, target.time) + config_.stream_timeout;
   stream_sequence_ = seq;
   target_valid_ = true;
   resume_waiting_ = false;
@@ -312,6 +504,13 @@ void Controller::operate(Operation op, uint64_t id) {
   if (op == Operation::Disable) {
     operations_.clear();
     operations_.emplace_front(op, id);
+  } else if (op == Operation::Stop) {
+    operations_.erase(std::remove_if(operations_.begin(), operations_.end(),
+                                     [](const auto &entry) {
+                                       return entry.first != Operation::Disable;
+                                     }),
+                      operations_.end());
+    operations_.emplace_back(op, id);
   } else if (operations_.size() < 16)
     operations_.emplace_back(op, id);
   else
@@ -319,10 +518,10 @@ void Controller::operate(Operation op, uint64_t id) {
 }
 bool Controller::gains(const Vec &k, const Vec &d) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (state_.mode != Mode::Holding || !k.allFinite() || !d.allFinite() ||
-      (k.array() <= 0).any() || (d.array() <= 0).any() ||
-      (k.head<3>().array() > 500).any() || (k.tail<3>().array() > 30).any() ||
-      (d.array() > 100).any())
+  if ((state_.mode != Mode::Holding && state_.mode != Mode::Impedance) ||
+      !k.allFinite() || !d.allFinite() || (k.array() <= 0).any() ||
+      (d.array() <= 0).any() || (k.head<3>().array() > 500).any() ||
+      (k.tail<3>().array() > 30).any() || (d.array() > 100).any())
     return false;
   config_.stiffness = k;
   config_.damping = d;
@@ -354,13 +553,27 @@ void Controller::startStream(Mode m, double now) {
   resume_mode_ = m;
   target_valid_ = false;
   resume_waiting_ = true;
-  stream_at_ = now;
+  stream_deadline_ = now + config_.stream_timeout;
   stream_sequence_ = 0;
   ++state_.session;
   ++generation_;
   state_.reason = "waiting for new session target";
+  state_.trajectory_duration = 0;
+  state_.trajectory_time_scale = 1;
   impedance_reference_ = model_.fk(state_.feedback.q);
-  stream_pose_ = impedance_reference_;
+  impedance_velocity_.setZero();
+  JointReference joints;
+  joints.time = now;
+  joints.position = reference_;
+  joints.velocity = velocity_;
+  joints.acceleration = acceleration_;
+  joints.has_velocity = joints.has_acceleration = true;
+  joint_references_.reset(joints);
+  CartesianReference pose;
+  pose.time = now;
+  pose.pose = impedance_reference_;
+  pose.has_velocity = pose.has_acceleration = true;
+  pose_references_.reset(pose);
 }
 bool Controller::beginStop(const std::string &why, double now) {
   resume_mode_ = streaming(state_.mode) ? state_.mode : Mode::Holding;
@@ -381,6 +594,13 @@ bool Controller::beginStop(const std::string &why, double now) {
     }
   } catch (const std::exception &) {
     fault("stop generator exception");
+    return false;
+  }
+  std::string failure;
+  if (!pathSafe(stop_, model_, config_.collision_margin,
+                config_.lookahead_budget, &failure,
+                (state_.feedback.q - reference_).cwiseAbs())) {
+    fault("stop trajectory invalid: " + failure);
     return false;
   }
   if (state_.active_id)
@@ -467,7 +687,7 @@ Output Controller::step(const Feedback &feedback, double now) {
       return out;
     }
     state_.tcp = model_.fk(f.q);
-    auto clearance = model_.clearance(f.q);
+    auto clearance = model_.clearanceSample(f.q);
     state_.collision_distance = clearance.distance;
     state_.collision_pair = clearance.pair;
     while (!operations_.empty()) {
@@ -544,76 +764,98 @@ Output Controller::step(const Feedback &feedback, double now) {
       fault("measured geometric collision risk");
       return out;
     }
-    if (streaming(state_.mode) && now - stream_at_ > config_.stream_timeout)
+    if (streaming(state_.mode) && now > stream_deadline_)
       beginStop("stream input timeout", now);
     if ((moving(state_.mode) || state_.mode == Mode::Holding) &&
         clearance.distance < config_.collision_warning)
       beginStop("collision warning distance", now);
+    if (state_.mode == Mode::Fault)
+      return out;
     Vec next_q = reference_, next_v = velocity_, next_a = acceleration_;
-    if (state_.mode == Mode::JointGoal || state_.mode == Mode::PoseGoal ||
-        state_.mode == Mode::Stopping) {
+    if (state_.mode == Mode::JointTrajectory ||
+        state_.mode == Mode::CartesianPath) {
+      const auto point = planned_.sample(std::max(0.0, now - motion_at_));
+      next_q = point.position;
+      next_v = point.velocity;
+      next_a = point.acceleration;
+    } else if (state_.mode == Mode::JointGoal ||
+               state_.mode == Mode::PoseGoal || state_.mode == Mode::Stopping) {
       std::array<double, 6> q, v, a;
       (state_.mode == Mode::Stopping ? stop_ : finite_)
           .at_time(std::max(0.0, now - motion_at_), q, v, a);
       next_q = vector(q);
       next_v = vector(v);
       next_a = vector(a);
-    } else if (target_valid_ && (state_.mode == Mode::JointStream ||
-                                 state_.mode == Mode::PoseStream)) {
+    } else if (target_valid_ && streaming(state_.mode)) {
       Input in = input(reference_, velocity_, acceleration_);
-      if (state_.mode == Mode::JointStream)
-        in.target_position = array(stream_q_);
-      else {
-        in.control_interface = ruckig::ControlInterface::Velocity;
-        Vec v = model_.differentialIk(reference_, stream_pose_, 1)
+      if (state_.mode == Mode::JointStream) {
+        joint_references_.prune(now);
+        const auto target = joint_references_.sample(
+            now + config_.reference_preview, config_.reference_extrapolation);
+        in.target_position = array(
+            target.position.cwiseMax(model_.lower()).cwiseMin(model_.upper()));
+        in.target_velocity = array(target.velocity.cwiseMax(-config_.velocity)
+                                       .cwiseMin(config_.velocity));
+        in.target_acceleration =
+            array(target.acceleration.cwiseMax(-config_.acceleration)
+                      .cwiseMin(config_.acceleration));
+        in.minimum_duration = config_.reference_preview;
+      } else {
+        pose_references_.prune(now);
+        const auto target = pose_references_.sample(
+            now + config_.reference_preview, config_.reference_extrapolation);
+        Vec v = model_
+                    .differentialIk(reference_, target.pose,
+                                    state_.mode == Mode::Impedance ? 0.5 : 1.0,
+                                    target.velocity)
                     .cwiseMax(-config_.velocity)
                     .cwiseMin(config_.velocity);
-        // Predict joint limits over conservative deceleration time, not only
-        // the next sample.
-        for (int i = 0; i < 6; ++i) {
-          double distance = v[i] >= 0 ? model_.upper()[i] - reference_[i]
-                                      : reference_[i] - model_.lower()[i];
-          double offset = config_.acceleration[i] * config_.acceleration[i] /
-                          config_.jerk[i];
-          double safe =
-              std::max(0.0, std::sqrt(offset * offset +
-                                      2 * config_.acceleration[i] *
-                                          std::max(0.0, distance - 0.02)) -
-                                offset);
-          v[i] = std::copysign(std::min(std::abs(v[i]), safe), v[i]);
-        }
+        in.control_interface = ruckig::ControlInterface::Velocity;
         in.target_velocity = array(v);
         in.target_acceleration.fill(0);
+        if (state_.mode == Mode::Impedance) {
+          const auto equilibrium = pose_references_.sample(
+              now + config_.period, config_.reference_extrapolation);
+          impedance_reference_ = equilibrium.pose;
+          impedance_velocity_ = equilibrium.velocity;
+        }
       }
-      Trajectory t;
-      auto r = generator_.calculate(in, t);
-      if (r != ruckig::Result::Working) {
-        fault("stream generator failure");
+      // Bound requested terminal velocity by the remaining joint travel. This
+      // applies to dynamic joint references as well as differential IK.
+      for (int i = 0; i < 6; ++i) {
+        const double v = in.target_velocity[i];
+        const double distance = v >= 0 ? model_.upper()[i] - reference_[i]
+                                       : reference_[i] - model_.lower()[i];
+        const double offset =
+            config_.acceleration[i] * config_.acceleration[i] / config_.jerk[i];
+        const double safe =
+            std::max(0.0, std::sqrt(offset * offset +
+                                    2 * config_.acceleration[i] *
+                                        std::max(0.0, distance - 0.02)) -
+                              offset);
+        in.target_velocity[i] = std::copysign(std::min(std::abs(v), safe), v);
+        const double viable_acc = std::sqrt(
+            std::max(0.0, config_.jerk[i] * (config_.velocity[i] -
+                                             std::abs(in.target_velocity[i]))));
+        in.target_acceleration[i] =
+            std::clamp(in.target_acceleration[i], -viable_acc, viable_acc);
+      }
+      Trajectory trajectory;
+      if (generator_.calculate(in, trajectory) != ruckig::Result::Working) {
+        fault("stream reference generation failed");
         return out;
       }
       std::array<double, 6> q, v, a;
-      t.at_time(config_.period, q, v, a);
+      // Advance by elapsed time, as finite trajectories do. A delayed wakeup
+      // must not permanently slow the reference clock relative to timestamps.
+      // Suppress nanosecond-scale subtraction roundoff: tiny residual segments
+      // otherwise keep a settled Ruckig reference and geometry cache moving.
+      const double elapsed =
+          std::abs(dt - config_.period) < 1e-9 ? config_.period : dt;
+      trajectory.at_time(elapsed, q, v, a);
       next_q = vector(q);
       next_v = vector(v);
       next_a = vector(a);
-    } else if (state_.mode == Mode::Impedance && target_valid_) {
-      Vec v = model_.differentialIk(reference_, stream_pose_, 0.5)
-                  .cwiseMax(-config_.velocity)
-                  .cwiseMin(config_.velocity);
-      auto in = input(reference_, velocity_, acceleration_);
-      in.control_interface = ruckig::ControlInterface::Velocity;
-      in.target_velocity = array(v);
-      in.target_acceleration.fill(0);
-      Trajectory t;
-      if (generator_.calculate(in, t) != ruckig::Result::Working) {
-        fault("impedance reference generation failed");
-        return out;
-      }
-      std::array<double, 6> q, dq, ddq;
-      t.at_time(config_.period, q, dq, ddq);
-      next_q = vector(q);
-      next_v = vector(dq);
-      next_a = vector(ddq);
     }
     if (moving(state_.mode)) {
       // Every accepted step must preserve a clear, bounded braking path.
@@ -622,25 +864,26 @@ Output Controller::step(const Feedback &feedback, double now) {
       brake_in.target_velocity.fill(0);
       brake_in.target_acceleration.fill(0);
       Trajectory brake;
-      double error_bound = 2 * config_.geometry_radius_bound *
-                           (f.q - reference_).cwiseAbs().sum();
-      std::string failure = "brake generator error";
+      const Vec uncertainty = (f.q - reference_).cwiseAbs();
+      std::string failure;
       double horizon = std::max(dt, config_.period);
-      double swept = 2 * config_.geometry_radius_bound *
-                     (velocity_.cwiseAbs().sum() * horizon +
-                      0.5 * config_.acceleration.sum() * horizon * horizon);
-      auto start_clearance = model_.clearance(reference_);
+      const Vec swept = velocity_.cwiseAbs() * horizon +
+                        0.5 * config_.acceleration * horizon * horizon;
+      auto start_clearance =
+          model_.clearanceSample(reference_, uncertainty + swept);
       bool safe =
-          start_clearance.distance >
-              config_.collision_margin + error_bound + swept &&
+          start_clearance.distance > config_.collision_margin &&
           generator_.calculate(brake_in, brake) == ruckig::Result::Working &&
-          pathSafe(brake, model_, config_.collision_margin + error_bound,
-                   config_.lookahead_budget, &failure);
-      if (start_clearance.distance <=
-          config_.collision_margin + error_bound + swept)
-        failure = "next interval clearance: " + start_clearance.pair;
+          pathSafe(brake, model_, config_.collision_margin,
+                   config_.lookahead_budget, &failure, uncertainty);
+      if (start_clearance.distance <= config_.collision_margin)
+        failure =
+            "next interval clearance: " + std::string(start_clearance.pair);
       if (!safe) {
-        beginStop("cannot preserve braking path: " + failure, now);
+        if (failure.empty())
+          failure = "brake generator error";
+        if (!beginStop("cannot preserve braking path: " + failure, now))
+          return out;
         next_q = reference_;
         next_v = velocity_;
         next_a = acceleration_;
@@ -660,12 +903,12 @@ Output Controller::step(const Feedback &feedback, double now) {
       acceleration_.setZero();
       reference_ = f.q;
     }
-    if (state_.mode == Mode::JointGoal || state_.mode == Mode::PoseGoal) {
+    if (finiteMotion(state_.mode)) {
       if (now - motion_at_ >= duration_) {
         Vec tcp_error = poseError(state_.tcp, finite_pose_target_);
         bool reached = (f.q - reference_).cwiseAbs().maxCoeff() <
                        config_.position_tolerance;
-        if (state_.mode == Mode::PoseGoal)
+        if (state_.mode == Mode::PoseGoal || state_.mode == Mode::CartesianPath)
           reached &=
               tcp_error.head<3>().norm() < config_.tcp_position_tolerance &&
               tcp_error.tail<3>().norm() < config_.tcp_orientation_tolerance;
@@ -690,12 +933,19 @@ Output Controller::step(const Feedback &feedback, double now) {
     }
     Vec torque;
     if (state_.mode == Mode::Impedance) {
-      impedance_reference_ = model_.fk(reference_);
+      const double alpha =
+          1 - std::exp(-dt / config_.impedance_gain_time_constant);
+      stiffness_ += alpha * (config_.stiffness - stiffness_);
+      damping_ += alpha * (config_.damping - damping_);
       Jacobian J = model_.jacobian(f.q);
       Vec e = poseError(state_.tcp, impedance_reference_);
-      Vec v = model_.jacobian(reference_) * velocity_;
-      torque = J.transpose() * (config_.stiffness.cwiseProduct(e) +
-                                config_.damping.cwiseProduct(v - J * f.dq)) +
+      if (e.head<3>().norm() > 0.1)
+        e.head<3>() *= 0.1 / e.head<3>().norm();
+      if (e.tail<3>().norm() > 0.25)
+        e.tail<3>() *= 0.25 / e.tail<3>().norm();
+      torque = J.transpose() *
+                   (stiffness_.cwiseProduct(e) +
+                    damping_.cwiseProduct(impedance_velocity_ - J * f.dq)) +
                model_.inverseDynamics(f.q, f.dq, Vec::Zero());
     } else {
       // Computed-torque position tracking: gains have units s^-2 and s^-1.

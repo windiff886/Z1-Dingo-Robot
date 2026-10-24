@@ -6,7 +6,7 @@
 namespace z1::udp {
 struct Observer {
   std::vector<int> descriptors;
-  unsigned budget_us{1500};
+  unsigned budget_us{1000};
   bool sent{true}, fresh{};
   size_t last_length{};
   unsigned motor_count{}, protocol{};

@@ -1,0 +1,176 @@
+#include "z1_control/runtime.hpp"
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <iostream>
+#include <pthread.h>
+#include <sched.h>
+#include <stdexcept>
+#include <vector>
+
+using namespace z1;
+using Clock = std::chrono::steady_clock;
+namespace {
+void require(bool value, const char *message) {
+  if (!value)
+    throw std::runtime_error(message);
+}
+template <typename Predicate>
+void waitFor(Predicate ready, const char *message) {
+  const auto deadline = Clock::now() + std::chrono::seconds(3);
+  while (!ready()) {
+    require(Clock::now() < deadline, message);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
+struct RecordedTransport final : Transport {
+  struct Sample {
+    double time;
+    bool enabled;
+    int cpu;
+  };
+  std::vector<Sample> samples;
+  unsigned delay_cycle{};
+  std::chrono::milliseconds delay{};
+  Vec q{(Vec() << 0, 0.8, -1.1, 0.3, 0, 0).finished()};
+  uint64_t sequence{};
+  RecordedTransport() { samples.reserve(1024); }
+  Exchange exchange(const Output &out, double now) override {
+    samples.push_back({now, out.enabled, sched_getcpu()});
+    if (++sequence == delay_cycle)
+      std::this_thread::sleep_for(delay);
+    if (out.enabled)
+      q = out.q;
+    Feedback feedback;
+    feedback.q = q;
+    feedback.dq = out.enabled ? out.dq : Vec::Zero();
+    feedback.tau = out.enabled ? out.tau : Vec::Zero();
+    feedback.received_at = monotonicTime();
+    feedback.sequence = sequence;
+    feedback.fresh = true;
+    return {feedback, true, {}};
+  }
+};
+void overrunSkipsSlots(const ModelConfig &model) {
+  Config config;
+  config.period = 0.01;
+  auto transport = std::make_unique<RecordedTransport>();
+  auto *recorded = transport.get();
+  recorded->delay_cycle = 4;
+  recorded->delay = std::chrono::milliseconds(85);
+  Runtime runtime(model, config, std::move(transport));
+  runtime.start();
+  runtime.start(); // Starting an active runtime must not create another loop.
+  waitFor([&] { return runtime.timing().cycles >= 15; },
+          "runtime did not advance");
+  runtime.stop();
+  const auto timing = runtime.timing();
+  require(timing.missed_slots >= 8, "overdue slots were not counted");
+  require(timing.max_exchange_us >= 80000, "exchange delay was not measured");
+  require(timing.cycles + 1 == recorded->samples.size(),
+          "shutdown did not send exactly one final passive packet");
+  // A delayed exchange must return to a future slot. It must not issue a burst
+  // of expired cycles immediately after the delayed one. Ignore the final
+  // passive packet, which intentionally follows the shutdown decision.
+  for (size_t i = 4; i + 1 < recorded->samples.size(); ++i)
+    require(recorded->samples[i].time - recorded->samples[i - 1].time > 0.001,
+            "runtime issued a burst of overdue cycles");
+  require(!timing.realtime_requested && !timing.affinity_requested,
+          "default runtime unexpectedly requested thread scheduling settings");
+  require(!recorded->samples.back().enabled, "final packet was not passive");
+  runtime.stop();
+  std::cout << "overrun cycles=" << timing.cycles
+            << " missed_slots=" << timing.missed_slots
+            << " max_exchange_us=" << timing.max_exchange_us << '\n';
+}
+void schedulerSettings(const ModelConfig &model) {
+  Config config;
+  RuntimeOptions invalid;
+  invalid.realtime_priority = -1;
+  invalid.cpu_affinity = CPU_SETSIZE;
+  Runtime rejected(model, config, std::make_unique<RecordedTransport>(),
+                   invalid);
+  rejected.start();
+  waitFor([&] { return rejected.timing().cycles >= 3; },
+          "rejected scheduler options stopped the runtime");
+  rejected.stop();
+  const auto status = rejected.timing();
+  require(status.realtime_requested && !status.realtime_applied &&
+              status.realtime_error == EINVAL,
+          "real-time setting failure was not exposed");
+  require(status.affinity_requested && !status.affinity_applied &&
+              status.affinity_error == EINVAL,
+          "affinity setting failure was not exposed");
+
+  cpu_set_t permitted;
+  CPU_ZERO(&permitted);
+  require(pthread_getaffinity_np(pthread_self(), sizeof(permitted),
+                                 &permitted) == 0,
+          "could not inspect test thread affinity");
+  int selected = 0;
+  while (selected < CPU_SETSIZE && !CPU_ISSET(selected, &permitted))
+    ++selected;
+  require(selected < CPU_SETSIZE, "no permitted CPU");
+  RuntimeOptions pinned;
+  pinned.cpu_affinity = selected;
+  auto transport = std::make_unique<RecordedTransport>();
+  auto *recorded = transport.get();
+  Runtime runtime(model, config, std::move(transport), pinned);
+  runtime.start();
+  waitFor([&] { return runtime.timing().cycles >= 3; },
+          "pinned runtime did not advance");
+  runtime.stop();
+  require(runtime.timing().affinity_applied &&
+              runtime.timing().affinity_error == 0,
+          "permitted thread affinity was not applied");
+  require(
+      std::all_of(recorded->samples.begin(), recorded->samples.end(),
+                  [&](const auto &sample) { return sample.cpu == selected; }),
+      "control thread ran outside requested affinity");
+}
+void controlledShutdown(const ModelConfig &model) {
+  Config config;
+  auto transport = std::make_unique<RecordedTransport>();
+  auto *recorded = transport.get();
+  Runtime runtime(model, config, std::move(transport));
+  runtime.start();
+  waitFor([&] { return runtime.timing().cycles >= 3; }, "no initial feedback");
+  runtime.controller().operate(Operation::Enable);
+  waitFor([&] { return runtime.controller().snapshot().mode == Mode::Holding; },
+          "runtime did not enable");
+  auto q = runtime.controller().snapshot().feedback.q;
+  q[0] += 0.08;
+  require(runtime.controller().goal(1, q, 0.3), "runtime goal rejected");
+  waitFor(
+      [&] { return runtime.controller().snapshot().mode == Mode::JointGoal; },
+      "runtime motion did not start");
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  const auto before = runtime.timing().cycles;
+  runtime.stop();
+  require(runtime.controller().snapshot().mode == Mode::AwaitResume,
+          "runtime did not finish its controlled stop");
+  require(runtime.timing().cycles > before + 2,
+          "controlled stop did not execute across control slots");
+  require(!recorded->samples.back().enabled, "shutdown omitted passive packet");
+  // Every exchange during braking uses the same absolute period scheduler.
+  // The exception is the intentional final passive packet.
+  for (size_t i = before + 1; i + 1 < recorded->samples.size(); ++i)
+    require(recorded->samples[i].time - recorded->samples[i - 1].time >
+                config.period * 0.1,
+            "controlled stop used a burst of unpaced updates");
+}
+} // namespace
+int main(int argc, char **argv) {
+  try {
+    require(argc == 2, "model argument missing");
+    const auto model = defaultModelConfig(argv[1]);
+    overrunSkipsSlots(model);
+    schedulerSettings(model);
+    controlledShutdown(model);
+    std::cout << "runtime timing and shutdown tests passed\n";
+  } catch (const std::exception &error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}

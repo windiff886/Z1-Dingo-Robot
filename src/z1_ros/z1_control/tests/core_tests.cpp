@@ -1,4 +1,5 @@
 #include "z1_control/runtime.hpp"
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -201,6 +202,180 @@ int main(int argc, char **argv) {
                                         : x.c.stream(new_session, 1, p, x.now),
               "fresh resumed target rejected");
     }
+    // A future q/dq/ddq stream must track without coming to rest at each
+    // producer update, while retaining the configured motion bounds.
+    Fixture scheduled(argv[1]);
+    scheduled.enable();
+    scheduled.c.operate(Operation::JointStream);
+    scheduled.tick();
+    const auto session = scheduled.c.snapshot().session;
+    const double started = scheduled.now, omega = 3.141592653589793;
+    uint64_t sequence = 0;
+    Vec last_v = scheduled.output.dq, last_a = Vec::Zero();
+    double squared_error = 0;
+    unsigned samples = 0;
+    for (int i = 0; i < 2500; ++i) {
+      if (i % 5 == 0) {
+        JointReference point;
+        point.time = scheduled.now + 0.04;
+        const double phase = omega * (point.time - started);
+        point.position = q;
+        point.position[0] += 0.03 * std::sin(phase);
+        point.velocity[0] = 0.03 * omega * std::cos(phase);
+        point.acceleration[0] = -0.03 * omega * omega * std::sin(phase);
+        point.has_velocity = point.has_acceleration = true;
+        require(scheduled.c.stream(session, ++sequence, point, scheduled.now),
+                "future dynamic reference rejected");
+      }
+      scheduled.tick();
+      require(scheduled.c.snapshot().mode == Mode::JointStream,
+              "dynamic reference interrupted");
+      const Vec acc = (scheduled.output.dq - last_v) / scheduled.config.period;
+      require((scheduled.output.dq.cwiseAbs().array() <=
+               scheduled.config.velocity.array() + 1e-6)
+                  .all(),
+              "stream velocity limit");
+      require((acc.cwiseAbs().array() <=
+               scheduled.config.acceleration.array() + 1e-5)
+                  .all(),
+              "stream acceleration limit");
+      require(((acc - last_a).cwiseAbs().array() / scheduled.config.period <=
+               scheduled.config.jerk.array() + 1e-3)
+                  .all(),
+              "stream jerk limit");
+      last_v = scheduled.output.dq;
+      last_a = acc;
+      if (i > 1000) {
+        const double ideal = 0.03 * std::sin(omega * (scheduled.now - started));
+        squared_error += std::pow(scheduled.output.q[0] - ideal, 2);
+        ++samples;
+      }
+    }
+    require(std::sqrt(squared_error / samples) < 0.002,
+            "scheduled reference tracking error");
+
+    // Identical elapsed times must advance streaming references identically,
+    // even when the configured scheduler periods differ. This catches a
+    // nominal-period clock that drifts after delayed or skipped wakeups.
+    Config slower;
+    slower.period = 0.004;
+    Controller fast_clock(mc, Config{}), slow_clock(mc, slower);
+    Feedback fast_feedback, slow_feedback;
+    fast_feedback.q = slow_feedback.q = q;
+    fast_feedback.fresh = slow_feedback.fresh = true;
+    Output fast_output, slow_output;
+    double clock_time = 1;
+    auto advance_clocks = [&](double dt) {
+      clock_time += dt;
+      for (auto *feedback : {&fast_feedback, &slow_feedback}) {
+        feedback->received_at = clock_time;
+        ++feedback->sequence;
+      }
+      if (fast_output.enabled) {
+        fast_feedback.q = fast_output.q;
+        fast_feedback.dq = fast_output.dq;
+      }
+      if (slow_output.enabled) {
+        slow_feedback.q = slow_output.q;
+        slow_feedback.dq = slow_output.dq;
+      }
+      fast_output = fast_clock.step(fast_feedback, clock_time);
+      slow_output = slow_clock.step(slow_feedback, clock_time);
+    };
+    advance_clocks(0.002);
+    fast_clock.operate(Operation::Enable);
+    slow_clock.operate(Operation::Enable);
+    advance_clocks(0.002);
+    fast_clock.operate(Operation::JointStream);
+    slow_clock.operate(Operation::JointStream);
+    advance_clocks(0.002);
+    const auto fast_session = fast_clock.snapshot().session;
+    const auto slow_session = slow_clock.snapshot().session;
+    JointReference stationary_target;
+    stationary_target.position = q;
+    stationary_target.position[0] += 0.03;
+    stationary_target.has_velocity = stationary_target.has_acceleration = true;
+    const double intervals[] = {0.001, 0.003, 0.006, 0.002};
+    Vec previous_jitter_velocity = Vec::Zero();
+    Vec previous_jitter_acceleration = Vec::Zero();
+    double previous_interval = 0.002;
+    for (int i = 0; i < 200; ++i) {
+      stationary_target.time = clock_time;
+      require(fast_clock.stream(fast_session, i + 1, stationary_target,
+                                clock_time) &&
+                  slow_clock.stream(slow_session, i + 1, stationary_target,
+                                    clock_time),
+              "jitter reference rejected");
+      advance_clocks(intervals[i % 4]);
+      require(fast_clock.snapshot().mode == Mode::JointStream &&
+                  slow_clock.snapshot().mode == Mode::JointStream,
+              "jittered stream interrupted");
+      require((fast_output.q - slow_output.q).norm() < 1e-10 &&
+                  (fast_output.dq - slow_output.dq).norm() < 1e-9,
+              "streaming reference clock depends on nominal scheduler period");
+      const double interval = intervals[i % 4];
+      const Vec acceleration =
+          (fast_output.dq - previous_jitter_velocity) / interval;
+      require((acceleration.cwiseAbs().array() <=
+               slower.acceleration.array() + 1e-6)
+                  .all(),
+              "jittered reference acceleration limit");
+      require(
+          ((acceleration - previous_jitter_acceleration).cwiseAbs().array() /
+               (0.5 * (interval + previous_interval)) <=
+           slower.jerk.array() + 1e-4)
+              .all(),
+          "jittered reference jerk limit");
+      previous_jitter_velocity = fast_output.dq;
+      previous_jitter_acceleration = acceleration;
+      previous_interval = interval;
+    }
+    // STOP must still take effect when ordinary mode requests fill the mailbox.
+    for (int i = 0; i < 16; ++i)
+      scheduled.c.operate(Operation::JointStream);
+    scheduled.c.operate(Operation::Stop);
+    scheduled.tick();
+    require(scheduled.c.snapshot().mode == Mode::Stopping ||
+                scheduled.c.snapshot().mode == Mode::AwaitResume,
+            "stop lost behind queued mode requests");
+
+    Fixture compliant(argv[1]);
+    compliant.enable();
+    compliant.c.operate(Operation::Impedance);
+    compliant.tick();
+    const auto impedance_session = compliant.c.snapshot().session;
+    CartesianReference equilibrium;
+    equilibrium.pose = m.fk(q);
+    equilibrium.has_velocity = equilibrium.has_acceleration = true;
+    compliant.f.q = q;
+    compliant.f.q[0] += 0.01;
+    compliant.f.dq.setZero();
+    for (int i = 0; i < 100; ++i) {
+      equilibrium.time = compliant.now;
+      require(compliant.c.stream(impedance_session, i + 1, equilibrium,
+                                 compliant.now),
+              "impedance reference rejected");
+      compliant.tick(false);
+      require(compliant.c.snapshot().mode == Mode::Impedance,
+              "rigid common joint motion caused a false collision stop");
+    }
+    const Vec before_gain = compliant.output.tau;
+    require(compliant.c.gains(2 * compliant.config.stiffness,
+                              compliant.config.damping),
+            "online impedance gain update rejected");
+    compliant.tick(false);
+    const Vec error = poseError(m.fk(compliant.f.q), equilibrium.pose);
+    const double alpha =
+        1 - std::exp(-compliant.config.period /
+                     compliant.config.impedance_gain_time_constant);
+    const Vec expected_change = alpha * m.jacobian(compliant.f.q).transpose() *
+                                compliant.config.stiffness.cwiseProduct(error);
+    require((compliant.output.tau - before_gain - expected_change).norm() <
+                1e-8,
+            "impedance gain change was not smoothly filtered");
+    require(expected_change.norm() > 1e-6,
+            "impedance gain test has no torque signal");
+
     Fixture lost(argv[1]);
     lost.enable();
     auto cached = lost.f;
@@ -246,7 +421,8 @@ int main(int argc, char **argv) {
     require(threw && !factory_called,
             "transport opened before configuration validation");
     std::cout << "PASS: model, IK, dynamics, fixed collision, finite goals, "
-                 "both streams, impedance, session timeout, feedback failure "
+                 "dynamic references and limits, online impedance gains, "
+                 "stop priority, session timeout, feedback failure "
                  "and instance isolation\n";
     return 0;
   } catch (const std::exception &e) {

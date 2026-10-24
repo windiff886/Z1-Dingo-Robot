@@ -1,0 +1,223 @@
+500 Hz SDK change paired benchmark — 2026-10-23
+
+Scope: same-host fixed-affinity sequential paired software benchmark; no MCU/network or hardware tracking.
+Both variants explicitly simulate the same 500 Hz step for the focused comparison.
+This is the current audit host (i9-13900HX), not the robot deployment i7-13700H.
+CPU affinity: taskset -c 2 for every invocation; no real-time scheduling requested.
+Order: pair1 before->after; pair2 after->before; pair3 before->after.
+Each invocation includes all benchmark cases; all six exited 0; stderr empty.
+No best-run selection. Summary uses median of the three run-level metrics; P99 summary is median of per-run P99, not pooled P99.
+The fixed-step simulation does not measure 500 Hz wakeup stability; CPU timing includes normal OS noise.
+
+Environment and input:
+{
+  "date": "2026-10-23",
+  "cpu_affinity": 2,
+  "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900HX",
+  "urdf": "/home/windiff/Code/Z1-Dingo-Robot/src/z1_ros/z1_description/urdf/z1_control.urdf",
+  "urdf_sha256": "9b20ffbeda428daa3be901bd5ee494d70fbb93832de2250b74fb8b6927840ee4",
+  "binaries": {
+    "before": {
+      "path": "/tmp/z1-500-before/build/performance_before",
+      "sha256": "b9afc8833fb849f33e2ea688a850b58d15ca40483f49e87eb21a431a903560a3"
+    },
+    "after": {
+      "path": "/tmp/z1-performance-audit-build/performance_audit",
+      "sha256": "cf9e6c997d6730c80f2d35c99561f2ec2fb306c206576d761f9f52b2fe5c5473"
+    }
+  },
+  "order": [
+    [
+      1,
+      "before"
+    ],
+    [
+      1,
+      "after"
+    ],
+    [
+      2,
+      "after"
+    ],
+    [
+      2,
+      "before"
+    ],
+    [
+      3,
+      "before"
+    ],
+    [
+      3,
+      "after"
+    ]
+  ]
+}
+cpu2_scaling_governor=powersave
+before_binary_unchanged_through_runs=True
+after_binary_unchanged_through_runs=True
+
+Focused summary: simulation_rate_hz=500, signal_hz=0.5
+case,metric,before_runs,after_runs,before_median,after_median,after_change_percent,paired_after_change_percent
+current_position_stream,step_median_us,16.676/16.388/16.424,15.564/15.686/16.476,16.424,15.686,-4.49,-6.67/-4.28/+0.32
+current_position_stream,step_p99_us,24.076/21.497/22.453,21.837/22.051/25.420,22.453,22.051,-1.79,-9.30/+2.58/+13.21
+current_pose_stream,step_median_us,14.012/14.145/13.244,12.280/12.921/12.320,14.012,12.320,-12.08,-12.36/-8.65/-6.98
+current_pose_stream,step_p99_us,18.840/22.216/17.990,17.585/18.669/16.477,18.840,17.585,-6.66,-6.66/-15.97/-8.41
+dynamic_joint_reference,step_median_us,16.931/16.330/16.239,15.620/15.498/15.616,16.330,15.616,-4.37,-7.74/-5.09/-3.84
+dynamic_joint_reference,step_p99_us,24.181/22.044/20.793,20.511/19.652/20.157,22.044,20.157,-8.56,-15.18/-10.85/-3.06
+scheduled_joint_reference,step_median_us,16.693/16.638/16.503,15.954/15.678/15.988,16.638,15.954,-4.11,-4.43/-5.77/-3.12
+scheduled_joint_reference,step_p99_us,23.334/22.158/21.857,21.136/19.430/23.341,22.158,21.136,-4.61,-9.42/-12.31/+6.79
+
+Focused result consistency at printed precision (not a bitwise state-trajectory comparison):
+case,identical_metrics_across_all_six_runs,rms_mrad,tcp_position_rms_mm,tcp_rotation_rms_mrad,stopped
+current_position_stream,True,4.30139,0.49889,4.22540,0
+current_pose_stream,True,9.21552,0.08952,1.24095,0
+dynamic_joint_reference,True,0.09329,0.02937,0.27960,0
+scheduled_joint_reference,True,0.08972,0.02907,0.27715,0
+
+Interpretation:
+The medians suggest modest computation savings in these cases: position 4.5%, pose 12.1%, dynamic 4.4%, scheduled 4.1%. These are combined SDK implementation changes, not isolated ComputeDistance gains.
+Position step median in pair3 is 0.3% slower after; position P99 and scheduled P99 also worsen in pair3. Therefore no claim of universal per-step speedup or robust tail-latency improvement is supported by three short runs.
+All focused tracking errors, fitted phase/amplitude, stop status and clearance call counts match at the printed precision across six runs. No tracking improvement or degradation is observed from these implementation optimizations at the same simulated rate.
+For narrow-phase solver-only evidence see coal_distance_probe/RESULTS.txt. That independent exact-result comparison is not a whole-controller benchmark.
+
+Raw runs (complete stdout; stderr was empty):
+
+===== pair=1, variant=before =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.26700,p99_us=0.29000,mean_us=0.26837
+micro,jacobian,median_us=0.35500,p99_us=0.41500,mean_us=0.35795
+micro,rnea,median_us=0.61200,p99_us=0.72400,mean_us=0.62941
+micro,differential_ik,median_us=1.87700,p99_us=2.88400,mean_us=1.93060
+micro,clearance,median_us=1.09300,p99_us=1.38900,mean_us=1.09648
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=14.78900,step_p99_us=25.10600,clearance_calls_per_step=6.04867,collision_fraction=0.52113
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=15.57800,step_p99_us=25.17500,clearance_calls_per_step=6.02750,collision_fraction=0.50773
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=15.38600,step_p99_us=27.51700,clearance_calls_per_step=6.03075,collision_fraction=0.52201
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=16.45400,step_p99_us=26.47200,clearance_calls_per_step=7.05833,collision_fraction=0.55443
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=16.67600,step_p99_us=24.07600,clearance_calls_per_step=7.06133,collision_fraction=0.55096
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=16.39800,step_p99_us=24.42500,clearance_calls_per_step=7.08458,collision_fraction=0.56134
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=12.81900,step_p99_us=17.20700,clearance_calls_per_step=5.38000,collision_fraction=0.52033
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=14.01200,step_p99_us=18.84000,clearance_calls_per_step=6.15133,collision_fraction=0.54885
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=15.42200,step_p99_us=24.06100,clearance_calls_per_step=5.87633,collision_fraction=0.49962
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=16.93100,step_p99_us=24.18100,clearance_calls_per_step=7.04900,collision_fraction=0.54253
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=15.61400,step_p99_us=22.31500,clearance_calls_per_step=5.88067,collision_fraction=0.49923
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=16.69300,step_p99_us=23.33400,clearance_calls_per_step=7.05050,collision_fraction=0.53386
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target
+
+===== pair=1, variant=after =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.17100,p99_us=0.19100,mean_us=0.17333
+micro,jacobian,median_us=0.26000,p99_us=0.29500,mean_us=0.26514
+micro,rnea,median_us=0.55300,p99_us=0.67400,mean_us=0.57073
+micro,differential_ik,median_us=1.30800,p99_us=1.64300,mean_us=1.36738
+micro,clearance,median_us=0.86300,p99_us=1.06600,mean_us=0.89085
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=13.92000,step_p99_us=22.19600,clearance_calls_per_step=6.04867,collision_fraction=0.50922
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=14.15900,step_p99_us=20.38200,clearance_calls_per_step=6.02750,collision_fraction=0.50013
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=13.69500,step_p99_us=21.47600,clearance_calls_per_step=6.03075,collision_fraction=0.50902
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=15.74800,step_p99_us=24.55300,clearance_calls_per_step=7.05833,collision_fraction=0.54231
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=15.56400,step_p99_us=21.83700,clearance_calls_per_step=7.06133,collision_fraction=0.53793
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=15.18800,step_p99_us=21.42800,clearance_calls_per_step=7.08458,collision_fraction=0.54905
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=11.16800,step_p99_us=13.87200,clearance_calls_per_step=5.38000,collision_fraction=0.52416
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=12.28000,step_p99_us=17.58500,clearance_calls_per_step=6.15133,collision_fraction=0.55125
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=14.03900,step_p99_us=20.03100,clearance_calls_per_step=5.87633,collision_fraction=0.48754
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=15.62000,step_p99_us=20.51100,clearance_calls_per_step=7.04900,collision_fraction=0.53175
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=14.01600,step_p99_us=18.24700,clearance_calls_per_step=5.88067,collision_fraction=0.48764
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=15.95400,step_p99_us=21.13600,clearance_calls_per_step=7.05050,collision_fraction=0.52271
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target
+
+===== pair=2, variant=after =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.18000,p99_us=0.20000,mean_us=0.18304
+micro,jacobian,median_us=0.26000,p99_us=0.29900,mean_us=0.26531
+micro,rnea,median_us=0.51800,p99_us=0.70100,mean_us=0.54739
+micro,differential_ik,median_us=1.32300,p99_us=1.73900,mean_us=1.39606
+micro,clearance,median_us=0.88000,p99_us=1.08300,mean_us=0.91603
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=15.41100,step_p99_us=31.68800,clearance_calls_per_step=6.04867,collision_fraction=0.50479
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=16.61000,step_p99_us=30.56600,clearance_calls_per_step=6.02750,collision_fraction=0.49336
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=13.67200,step_p99_us=21.30000,clearance_calls_per_step=6.03075,collision_fraction=0.50636
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=15.53400,step_p99_us=22.99600,clearance_calls_per_step=7.05833,collision_fraction=0.54230
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=15.68600,step_p99_us=22.05100,clearance_calls_per_step=7.06133,collision_fraction=0.53623
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=15.28100,step_p99_us=21.92000,clearance_calls_per_step=7.08458,collision_fraction=0.54821
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=11.95300,step_p99_us=16.68200,clearance_calls_per_step=5.38000,collision_fraction=0.51945
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=12.92100,step_p99_us=18.66900,clearance_calls_per_step=6.15133,collision_fraction=0.54603
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=14.00800,step_p99_us=18.29700,clearance_calls_per_step=5.87633,collision_fraction=0.48506
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=15.49800,step_p99_us=19.65200,clearance_calls_per_step=7.04900,collision_fraction=0.52737
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=14.11200,step_p99_us=19.74700,clearance_calls_per_step=5.88067,collision_fraction=0.48335
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=15.67800,step_p99_us=19.43000,clearance_calls_per_step=7.05050,collision_fraction=0.51894
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target
+
+===== pair=2, variant=before =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.23600,p99_us=0.28400,mean_us=0.24348
+micro,jacobian,median_us=0.31600,p99_us=0.36600,mean_us=0.31971
+micro,rnea,median_us=0.51200,p99_us=0.66400,mean_us=0.52277
+micro,differential_ik,median_us=1.62000,p99_us=1.86500,mean_us=1.64332
+micro,clearance,median_us=0.94300,p99_us=1.19900,mean_us=0.97374
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=14.13900,step_p99_us=22.96200,clearance_calls_per_step=6.04867,collision_fraction=0.52319
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=14.46500,step_p99_us=20.56900,clearance_calls_per_step=6.02750,collision_fraction=0.51294
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=14.74000,step_p99_us=23.05200,clearance_calls_per_step=6.03075,collision_fraction=0.52515
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=16.21000,step_p99_us=22.47500,clearance_calls_per_step=7.05833,collision_fraction=0.55786
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=16.38800,step_p99_us=21.49700,clearance_calls_per_step=7.06133,collision_fraction=0.55280
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=16.09500,step_p99_us=23.20200,clearance_calls_per_step=7.08458,collision_fraction=0.56270
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=12.87200,step_p99_us=16.44000,clearance_calls_per_step=5.38000,collision_fraction=0.52185
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=14.14500,step_p99_us=22.21600,clearance_calls_per_step=6.15133,collision_fraction=0.54973
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=14.70500,step_p99_us=20.11200,clearance_calls_per_step=5.87633,collision_fraction=0.50059
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=16.33000,step_p99_us=22.04400,clearance_calls_per_step=7.04900,collision_fraction=0.54414
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=14.81500,step_p99_us=23.50400,clearance_calls_per_step=5.88067,collision_fraction=0.50085
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=16.63800,step_p99_us=22.15800,clearance_calls_per_step=7.05050,collision_fraction=0.53488
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target
+
+===== pair=3, variant=before =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.24400,p99_us=0.28500,mean_us=0.25488
+micro,jacobian,median_us=0.31700,p99_us=0.39200,mean_us=0.33009
+micro,rnea,median_us=0.53000,p99_us=0.61900,mean_us=0.54243
+micro,differential_ik,median_us=1.65300,p99_us=2.30100,mean_us=1.73872
+micro,clearance,median_us=0.94000,p99_us=1.08600,mean_us=0.96119
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=14.15000,step_p99_us=23.16400,clearance_calls_per_step=6.04867,collision_fraction=0.52048
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=14.56600,step_p99_us=20.81600,clearance_calls_per_step=6.02750,collision_fraction=0.51167
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=14.54400,step_p99_us=23.02100,clearance_calls_per_step=6.03075,collision_fraction=0.52352
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=16.10600,step_p99_us=21.60100,clearance_calls_per_step=7.05833,collision_fraction=0.55554
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=16.42400,step_p99_us=22.45300,clearance_calls_per_step=7.06133,collision_fraction=0.55140
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=15.90100,step_p99_us=21.35300,clearance_calls_per_step=7.08458,collision_fraction=0.56153
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=12.79600,step_p99_us=15.98600,clearance_calls_per_step=5.38000,collision_fraction=0.52235
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=13.24400,step_p99_us=17.99000,clearance_calls_per_step=6.15133,collision_fraction=0.54998
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=14.59900,step_p99_us=19.60000,clearance_calls_per_step=5.87633,collision_fraction=0.50063
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=16.23900,step_p99_us=20.79300,clearance_calls_per_step=7.04900,collision_fraction=0.54461
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=14.50200,step_p99_us=17.80500,clearance_calls_per_step=5.88067,collision_fraction=0.50035
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=16.50300,step_p99_us=21.85700,clearance_calls_per_step=7.05050,collision_fraction=0.53517
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target
+
+===== pair=3, variant=after =====
+nominal_clearance=0.03452
+micro,fk,median_us=0.17200,p99_us=0.18500,mean_us=0.17313
+micro,jacobian,median_us=0.28700,p99_us=0.34300,mean_us=0.29385
+micro,rnea,median_us=0.51200,p99_us=0.66500,mean_us=0.53098
+micro,differential_ik,median_us=1.32600,p99_us=1.66100,mean_us=1.38306
+micro,clearance,median_us=0.86100,p99_us=1.06900,mean_us=0.90279
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=2.02893,target_ref_rms_mrad=2.01049,ref_actual_rms_mrad=0.09272,tcp_position_rms_mm=0.23677,tcp_rotation_rms_mrad=2.00739,lag_ms=18.66828,amplitude_ratio=0.95622,stopped=0,reason=,step_median_us=13.92000,step_p99_us=22.34600,clearance_calls_per_step=6.04867,collision_fraction=0.51030
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=1.56052,target_ref_rms_mrad=1.55084,ref_actual_rms_mrad=0.04892,tcp_position_rms_mm=0.18171,tcp_rotation_rms_mrad=1.54013,lag_ms=11.79632,amplitude_ratio=0.96568,stopped=0,reason=,step_median_us=15.13500,step_p99_us=24.16900,clearance_calls_per_step=6.02750,collision_fraction=0.50043
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.25000,rms_mrad=1.58380,target_ref_rms_mrad=1.57559,ref_actual_rms_mrad=0.03636,tcp_position_rms_mm=0.18431,tcp_rotation_rms_mrad=1.56198,lag_ms=12.79123,amplitude_ratio=0.96505,stopped=0,reason=,step_median_us=14.24800,step_p99_us=23.12000,clearance_calls_per_step=6.03075,collision_fraction=0.51690
+trace,current_position_stream,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=4.32147,target_ref_rms_mrad=4.24042,ref_actual_rms_mrad=0.15019,tcp_position_rms_mm=0.50105,tcp_rotation_rms_mrad=4.24341,lag_ms=57.79342,amplitude_ratio=1.05456,stopped=0,reason=,step_median_us=15.52000,step_p99_us=22.93400,clearance_calls_per_step=7.05833,collision_fraction=0.54561
+trace,current_position_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=4.30139,target_ref_rms_mrad=4.24589,ref_actual_rms_mrad=0.10314,tcp_position_rms_mm=0.49889,tcp_rotation_rms_mrad=4.22540,lag_ms=57.49327,amplitude_ratio=1.05585,stopped=0,reason=,step_median_us=16.47600,step_p99_us=25.42000,clearance_calls_per_step=7.06133,collision_fraction=0.53923
+trace,current_position_stream,simulation_rate_hz=1000.00000,signal_hz=0.50000,rms_mrad=4.46772,target_ref_rms_mrad=4.42467,ref_actual_rms_mrad=0.08055,tcp_position_rms_mm=0.51852,tcp_rotation_rms_mrad=4.39215,lag_ms=59.73010,amplitude_ratio=1.05773,stopped=0,reason=,step_median_us=15.32500,step_p99_us=24.33000,clearance_calls_per_step=7.08458,collision_fraction=0.54925
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.25000,rms_mrad=0.02411,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.02411,tcp_position_rms_mm=0.00552,tcp_rotation_rms_mrad=0.05928,lag_ms=0.68004,amplitude_ratio=0.99961,stopped=0,reason=
+trace,analytic_q_dq_ddq,simulation_rate_hz=250.00000,signal_hz=0.50000,rms_mrad=0.03263,target_ref_rms_mrad=0.00000,ref_actual_rms_mrad=0.03263,tcp_position_rms_mm=0.01727,tcp_rotation_rms_mrad=0.17810,lag_ms=0.32648,amplitude_ratio=0.99885,stopped=0,reason=
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=9.61070,target_ref_rms_mrad=9.65030,ref_actual_rms_mrad=0.05830,tcp_position_rms_mm=0.13390,tcp_rotation_rms_mrad=0.86508,lag_ms=36.69606,amplitude_ratio=0.54969,stopped=0,reason=,step_median_us=11.68400,step_p99_us=14.26500,clearance_calls_per_step=5.38000,collision_fraction=0.52130
+trace,current_pose_stream,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=9.21552,target_ref_rms_mrad=9.25256,ref_actual_rms_mrad=0.05292,tcp_position_rms_mm=0.08952,tcp_rotation_rms_mrad=1.24095,lag_ms=-1.83207,amplitude_ratio=0.56615,stopped=0,reason=,step_median_us=12.32000,step_p99_us=16.47700,clearance_calls_per_step=6.15133,collision_fraction=0.55019
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06349,target_ref_rms_mrad=0.06707,ref_actual_rms_mrad=0.06760,tcp_position_rms_mm=0.01430,tcp_rotation_rms_mrad=0.13290,lag_ms=-0.97058,amplitude_ratio=1.00142,stopped=0,reason=,step_median_us=14.19400,step_p99_us=19.34500,clearance_calls_per_step=5.87633,collision_fraction=0.48924
+trace,dynamic_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.09329,target_ref_rms_mrad=0.13585,ref_actual_rms_mrad=0.05406,tcp_position_rms_mm=0.02937,tcp_rotation_rms_mrad=0.27960,lag_ms=-1.34315,amplitude_ratio=0.99977,stopped=0,reason=,step_median_us=15.61600,step_p99_us=20.15700,clearance_calls_per_step=7.04900,collision_fraction=0.53110
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.25000,rms_mrad=0.06665,target_ref_rms_mrad=0.06677,ref_actual_rms_mrad=0.07130,tcp_position_rms_mm=0.01452,tcp_rotation_rms_mrad=0.13460,lag_ms=-0.94924,amplitude_ratio=1.00157,stopped=0,reason=,step_median_us=14.00300,step_p99_us=17.95500,clearance_calls_per_step=5.88067,collision_fraction=0.48737
+trace,scheduled_joint_reference,simulation_rate_hz=500.00000,signal_hz=0.50000,rms_mrad=0.08972,target_ref_rms_mrad=0.13348,ref_actual_rms_mrad=0.06521,tcp_position_rms_mm=0.02907,tcp_rotation_rms_mrad=0.27715,lag_ms=-1.22293,amplitude_ratio=1.00003,stopped=0,reason=,step_median_us=15.98800,step_p99_us=23.34100,clearance_calls_per_step=7.05050,collision_fraction=0.52280
+compliance,feedback_offset_rad=.01,before_clearance=0.03452,after_clearance=0.03452,tcp_displacement_mm=1.17771,mode=6,reason=waiting for new session target

@@ -2,14 +2,20 @@
 #include <XmlRpcValue.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <ros/ros.h>
+#include <ros/callback_queue.h>
 #include <sensor_msgs/JointState.h>
 #include <set>
 #include <stdexcept>
+#include <z1_msgs/CartesianReference.h>
 #include <z1_msgs/ControlCommand.h>
 #include <z1_msgs/GripperGoal.h>
 #include <z1_msgs/ImpedanceGains.h>
 #include <z1_msgs/JointGoal.h>
+#include <z1_msgs/JointReference.h>
 #include <z1_msgs/JointStream.h>
+#include <z1_msgs/JointTrajectory.h>
+#include <z1_msgs/JointWaypoints.h>
+#include <z1_msgs/LinearPath.h>
 #include <z1_msgs/MotionResult.h>
 #include <z1_msgs/PoseGoal.h>
 #include <z1_msgs/PoseStream.h>
@@ -38,6 +44,12 @@ template <class A> z1::Vec vector(const A &a) {
     out[i] = a[i];
   return out;
 }
+template <class Derivative> z1::Vec cartesianVector(const Derivative &value) {
+  z1::Vec out;
+  out << value.linear.x, value.linear.y, value.linear.z, value.angular.x,
+      value.angular.y, value.angular.z;
+  return out;
+}
 bool pose(const geometry_msgs::Pose &msg, z1::Pose &p) {
   Eigen::Quaterniond q(msg.orientation.w, msg.orientation.x, msg.orientation.y,
                        msg.orientation.z);
@@ -62,7 +74,8 @@ geometry_msgs::Pose poseMessage(const z1::Pose &p) {
   return out;
 }
 class Node {
-  ros::NodeHandle nh_, params_{"~"};
+  ros::CallbackQueue planning_queue_;
+  ros::NodeHandle nh_, params_{"~"}, planning_nh_;
   z1::Config config_;
   std::unique_ptr<z1::Runtime> runtime_;
   std::string prefix_, base_frame_;
@@ -100,8 +113,12 @@ class Node {
 
 public:
   Node() {
+    planning_nh_.setCallbackQueue(&planning_queue_);
     std::string urdf, backend, ip;
-    int port = 8881, budget = 1500;
+    int port = 8881, budget = 1000;
+    z1::RuntimeOptions runtime_options;
+    params_.param("control_cpu", runtime_options.cpu_affinity, -1);
+    params_.param("realtime_priority", runtime_options.realtime_priority, 0);
     bool validated = false;
     if (!params_.getParam("model_file", urdf) || urdf.empty())
       throw std::runtime_error("model_file is required");
@@ -118,6 +135,12 @@ public:
          {std::make_pair("period", &config_.period),
           {"feedback_timeout", &config_.feedback_timeout},
           {"stream_timeout", &config_.stream_timeout},
+          {"reference_preview", &config_.reference_preview},
+          {"reference_extrapolation", &config_.reference_extrapolation},
+          {"reference_velocity_filter", &config_.reference_velocity_filter},
+          {"reference_horizon", &config_.reference_horizon},
+          {"impedance_gain_time_constant",
+           &config_.impedance_gain_time_constant},
           {"collision_margin", &config_.collision_margin},
           {"collision_warning", &config_.collision_warning},
           {"geometry_radius_bound", &config_.geometry_radius_bound},
@@ -195,24 +218,24 @@ public:
     else if (backend == "udp") {
       params_.param<std::string>("mcu_ip", ip, "192.168.123.110");
       params_.param("local_port", port, 8881);
-      params_.param("receive_budget_us", budget, 1500);
+      params_.param("receive_budget_us", budget, 1000);
       params_.param("hardware_validated", validated, false);
       if (port <= 0 || port > 65535 || budget <= 0 ||
-          budget >= config_.period * 1e6)
+          budget * 1e-6 + config_.lookahead_budget >= config_.period)
         throw std::runtime_error(
-            "invalid port or receive budget exceeds period");
+            "invalid port or receive/check budgets leave no control time");
       z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
                         static_cast<unsigned>(budget), validated};
       transport = [mcu] { return std::make_unique<z1::McuTransport>(mcu); };
     } else
       throw std::runtime_error("unknown backend: " + backend);
-    runtime_ =
-        std::make_unique<z1::Runtime>(model, config_, std::move(transport));
+    runtime_ = std::make_unique<z1::Runtime>(
+        model, config_, std::move(transport), runtime_options);
     joints_ = nh_.advertise<sensor_msgs::JointState>("joint_states", 1);
     tcp_ = nh_.advertise<geometry_msgs::PoseStamped>("tcp_pose", 1);
     status_ = nh_.advertise<z1_msgs::Status>("status", 1, true);
     results_ = nh_.advertise<z1_msgs::MotionResult>("result", 128);
-    subscriptions_.push_back(nh_.subscribe<z1_msgs::JointGoal>(
+    subscriptions_.push_back(planning_nh_.subscribe<z1_msgs::JointGoal>(
         "joint_goal", 1, [this](const z1_msgs::JointGoal::ConstPtr &m) {
           if (!header(m->header, false, false)) {
             result(m->command_id, false, "expired goal");
@@ -221,7 +244,7 @@ public:
           runtime_->controller().goal(m->command_id, vector(m->positions),
                                       m->speed_scale);
         }));
-    subscriptions_.push_back(nh_.subscribe<z1_msgs::PoseGoal>(
+    subscriptions_.push_back(planning_nh_.subscribe<z1_msgs::PoseGoal>(
         "pose_goal", 1, [this](const z1_msgs::PoseGoal::ConstPtr &m) {
           z1::Pose p;
           if (!header(m->header, false, true) || !pose(m->pose, p)) {
@@ -230,23 +253,134 @@ public:
           }
           runtime_->controller().poseGoal(m->command_id, p, m->speed_scale);
         }));
+    subscriptions_.push_back(planning_nh_.subscribe<z1_msgs::JointTrajectory>(
+        "joint_trajectory", 1,
+        [this](const z1_msgs::JointTrajectory::ConstPtr &m) {
+          if (!header(m->header, false, false)) {
+            result(m->command_id, false, "expired trajectory");
+            return;
+          }
+          std::vector<z1::TrajectoryPoint> points;
+          points.reserve(m->points.size());
+          for (const auto &point : m->points) {
+            z1::TrajectoryPoint target;
+            target.time_from_start = point.time_from_start.toSec();
+            target.position = vector(point.positions);
+            target.velocity = vector(point.velocities);
+            target.acceleration = vector(point.accelerations);
+            target.has_velocity = point.has_velocity;
+            target.has_acceleration = point.has_acceleration;
+            points.push_back(target);
+          }
+          runtime_->controller().trajectory(m->command_id, points, m->retime);
+        }));
+    subscriptions_.push_back(planning_nh_.subscribe<z1_msgs::JointWaypoints>(
+        "joint_waypoints", 1,
+        [this](const z1_msgs::JointWaypoints::ConstPtr &m) {
+          if (!header(m->header, false, false)) {
+            result(m->command_id, false, "expired waypoints");
+            return;
+          }
+          std::vector<z1::Vec> points;
+          points.reserve(m->waypoints.size());
+          for (const auto &point : m->waypoints)
+            points.push_back(vector(point.positions));
+          runtime_->controller().jointWaypoints(m->command_id, points,
+                                                m->speed_scale);
+        }));
+    subscriptions_.push_back(planning_nh_.subscribe<z1_msgs::LinearPath>(
+        "linear_path", 1, [this](const z1_msgs::LinearPath::ConstPtr &m) {
+          if (!header(m->header, false, true)) {
+            result(m->command_id, false, "invalid path frame or timestamp");
+            return;
+          }
+          std::vector<z1::Pose> points;
+          points.reserve(m->poses.size());
+          for (const auto &message : m->poses) {
+            z1::Pose target;
+            if (!pose(message, target)) {
+              result(m->command_id, false, "invalid path pose");
+              return;
+            }
+            points.push_back(target);
+          }
+          z1::LinearPathOptions options;
+          options.speed = m->speed_scale;
+          options.blend_radius = m->blend_radius;
+          runtime_->controller().linearWaypoints(m->command_id, points,
+                                                 options);
+        }));
     subscriptions_.push_back(nh_.subscribe<z1_msgs::JointStream>(
-        "joint_stream", 1, [this](const z1_msgs::JointStream::ConstPtr &m) {
+        "joint_stream", 1,
+        [this](const z1_msgs::JointStream::ConstPtr &m) {
           if (!header(m->header, true, false) ||
               !runtime_->controller().stream(m->session_id, m->sequence,
                                              vector(m->positions),
                                              streamTime(m->header)))
             ROS_WARN_THROTTLE(1, "Rejected joint stream (timestamp, session, "
                                  "sequence, mode or target)");
-        }));
+        },
+        ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay()));
     subscriptions_.push_back(nh_.subscribe<z1_msgs::PoseStream>(
-        "pose_stream", 1, [this](const z1_msgs::PoseStream::ConstPtr &m) {
+        "pose_stream", 1,
+        [this](const z1_msgs::PoseStream::ConstPtr &m) {
           z1::Pose p;
           if (!header(m->header, true, true) || !pose(m->pose, p) ||
               !runtime_->controller().stream(m->session_id, m->sequence, p,
                                              streamTime(m->header)))
             ROS_WARN_THROTTLE(1, "Rejected pose stream");
-        }));
+        },
+        ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay()));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::JointReference>(
+        "joint_reference", 32,
+        [this](const z1_msgs::JointReference::ConstPtr &m) {
+          if (!header(m->header, true, false)) {
+            ROS_WARN_THROTTLE(1, "Rejected joint reference timestamp");
+            return;
+          }
+          const auto ros_now = ros::Time::now();
+          const double now = z1::monotonicTime();
+          const double source =
+              now - std::max(0.0, (ros_now - m->header.stamp).toSec());
+          z1::JointReference target;
+          target.time = m->target_time.isZero()
+                            ? source
+                            : now + (m->target_time - ros_now).toSec();
+          target.position = vector(m->positions);
+          target.has_velocity = m->has_velocity;
+          target.velocity = vector(m->velocities);
+          target.has_acceleration = m->has_acceleration;
+          target.acceleration = vector(m->accelerations);
+          if (!runtime_->controller().stream(m->session_id, m->sequence, target,
+                                             source))
+            ROS_WARN_THROTTLE(1, "Rejected joint reference");
+        },
+        ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay()));
+    subscriptions_.push_back(nh_.subscribe<z1_msgs::CartesianReference>(
+        "pose_reference", 32,
+        [this](const z1_msgs::CartesianReference::ConstPtr &m) {
+          z1::CartesianReference target;
+          if (!header(m->header, true, true) || !pose(m->pose, target.pose)) {
+            ROS_WARN_THROTTLE(
+                1, "Rejected Cartesian reference frame or timestamp");
+            return;
+          }
+          const auto ros_now = ros::Time::now();
+          const double now = z1::monotonicTime();
+          const double source =
+              now - std::max(0.0, (ros_now - m->header.stamp).toSec());
+          target.time = m->target_time.isZero()
+                            ? source
+                            : now + (m->target_time - ros_now).toSec();
+          target.has_velocity = m->has_velocity;
+          target.velocity = cartesianVector(m->velocity);
+          target.has_acceleration = m->has_acceleration;
+          target.acceleration = cartesianVector(m->acceleration);
+          if (!runtime_->controller().stream(m->session_id, m->sequence, target,
+                                             source))
+            ROS_WARN_THROTTLE(1, "Rejected Cartesian reference");
+        },
+        ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay()));
     subscriptions_.push_back(nh_.subscribe<z1_msgs::ControlCommand>(
         "control", 16, [this](const z1_msgs::ControlCommand::ConstPtr &m) {
           if (m->operation > 7) {
@@ -271,8 +405,9 @@ public:
                       runtime_->controller().gains(vector(m->stiffness),
                                                    vector(m->damping));
           result(m->command_id, okay,
-                 okay ? "gains applied"
-                      : "requires holding and bounded positive gains");
+                 okay
+                     ? "gains applied"
+                     : "requires holding/impedance and bounded positive gains");
         }));
     subscriptions_.push_back(nh_.subscribe<z1_msgs::GripperGoal>(
         "gripper_goal", 1, [this](const z1_msgs::GripperGoal::ConstPtr &m) {
@@ -286,10 +421,16 @@ public:
   }
   void run() {
     ros::AsyncSpinner spinner(2);
+    // Offline preparation has its own queue. A long Cartesian fit or another
+    // pending plan cannot occupy callbacks serving operations and live streams.
+    ros::AsyncSpinner planner(1, &planning_queue_);
     spinner.start();
+    planner.start();
     ros::WallRate rate(publish_rate_);
+    sensor_msgs::JointState joints;
     while (ros::ok()) {
       auto s = runtime_->controller().snapshot();
+      const auto timing = runtime_->timing();
       auto stamp = ros::Time::now();
       double age = z1::monotonicTime() - s.feedback.received_at;
       z1_msgs::Status status;
@@ -312,21 +453,41 @@ public:
       status.model_revision = s.model_revision;
       status.loop_period = s.loop_period;
       status.max_loop_period = s.max_loop_period;
+      status.runtime_cycles = timing.cycles;
+      status.missed_control_slots = timing.missed_slots;
+      status.exchange_time = timing.exchange_us * 1e-6;
+      status.max_exchange_time = timing.max_exchange_us * 1e-6;
+      status.wakeup_lateness = timing.wakeup_lateness_us * 1e-6;
+      status.max_wakeup_lateness = timing.max_wakeup_lateness_us * 1e-6;
+      status.realtime_scheduling = timing.realtime_applied;
+      status.cpu_affinity_applied = timing.affinity_applied;
+      status.realtime_error = timing.realtime_error;
+      status.cpu_affinity_error = timing.affinity_error;
+      status.trajectory_duration = s.trajectory_duration;
+      status.trajectory_time_scale = s.trajectory_time_scale;
       status_.publish(status);
       if (s.feedback.sequence > 0) {
-        sensor_msgs::JointState joints;
         joints.header.stamp = stamp;
+        const size_t count = s.feedback.has_gripper ? 7 : 6;
+        if (joints.name.size() != count) {
+          joints.name.resize(count);
+          joints.position.resize(count);
+          joints.velocity.resize(count);
+          joints.effort.resize(count);
+          for (int i = 0; i < 6; ++i)
+            joints.name[i] = prefix_ + "joint" + std::to_string(i + 1);
+          if (s.feedback.has_gripper)
+            joints.name[6] = prefix_ + "gripper_motor";
+        }
         for (int i = 0; i < 6; ++i) {
-          joints.name.push_back(prefix_ + "joint" + std::to_string(i + 1));
-          joints.position.push_back(s.feedback.q[i]);
-          joints.velocity.push_back(s.feedback.dq[i]);
-          joints.effort.push_back(s.feedback.tau[i]);
+          joints.position[i] = s.feedback.q[i];
+          joints.velocity[i] = s.feedback.dq[i];
+          joints.effort[i] = s.feedback.tau[i];
         }
         if (s.feedback.has_gripper) {
-          joints.name.push_back(prefix_ + "gripper_motor");
-          joints.position.push_back(s.feedback.gripper_q);
-          joints.velocity.push_back(s.feedback.gripper_dq);
-          joints.effort.push_back(s.feedback.gripper_tau);
+          joints.position[6] = s.feedback.gripper_q;
+          joints.velocity[6] = s.feedback.gripper_dq;
+          joints.effort[6] = s.feedback.gripper_tau;
         }
         joints_.publish(joints);
         if (status.feedback_valid) {
@@ -349,6 +510,7 @@ public:
     }
     spinner.stop();
     runtime_->stop();
+    planner.stop();
   }
 };
 } // namespace

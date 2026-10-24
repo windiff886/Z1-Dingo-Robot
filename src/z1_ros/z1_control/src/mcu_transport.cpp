@@ -61,7 +61,8 @@ McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
     throw std::runtime_error("MCU control requires hardware_validated=true "
                              "after commissioning; simulation is available");
   if (c.receive_budget_us == 0 || c.receive_budget_us > 10000 ||
-      !std::isfinite(c.period) || c.period <= 0)
+      !std::isfinite(c.period) || c.period <= 0 ||
+      c.receive_budget_us >= c.period * 1e6)
     throw std::runtime_error("invalid MCU receive budget/period");
   verifyLibrary();
   auto &p = *impl_;

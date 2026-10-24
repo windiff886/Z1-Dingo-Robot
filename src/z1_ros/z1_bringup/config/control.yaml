@@ -1,10 +1,21 @@
 # Provisional engineering defaults; commission torque mode, gains and geometry on the actual Z1.
-period: 0.004
+period: 0.002
 feedback_timeout: 0.08
 stream_timeout: 0.2
+# Short reference preview and bounded extrapolation for 20–100 Hz producers.
+reference_preview: 0.03
+reference_extrapolation: 0.1
+reference_velocity_filter: 0.01
+reference_horizon: 0.5
+impedance_gain_time_constant: 0.1
 command_max_age: 0.2
 publish_rate: 100.0
-receive_budget_us: 1500
+receive_budget_us: 1000
+# Optional native control-thread scheduling. Choose a permitted P-core CPU ID
+# on the deployment machine; -1 leaves affinity to the OS. Priority 0 uses the
+# current scheduler; a positive FIFO priority needs OS realtime permission.
+control_cpu: -1
+realtime_priority: 0
 velocity: [0.8, 0.8, 0.8, 0.8, 0.8, 0.8]
 acceleration: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
 jerk: [8, 8, 8, 8, 8, 8]
@@ -21,7 +32,7 @@ collision_margin: 0.008
 collision_warning: 0.03
 geometry_radius_bound: 1.5
 validation_budget: 2.0
-lookahead_budget: 0.003
+lookahead_budget: 0.0005
 position_tolerance: 0.015
 velocity_tolerance: 0.03
 settle_timeout: 3.0

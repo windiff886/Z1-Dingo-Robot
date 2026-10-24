@@ -1,0 +1,15 @@
+run=1
+random pairs=51 fresh_us=0.685813 persistent_us=0.603329 fresh_new=7.08569 persistent_new=2.91431 max_error=0 differences_over_1e-8=0 min_distance=-0.075458
+smooth pairs=51 fresh_us=0.638909 persistent_us=0.565389 fresh_new=7.07843 persistent_new=2.92157 max_error=0 differences_over_1e-8=0 min_distance=-0.0344997
+run=2
+random pairs=51 fresh_us=0.678115 persistent_us=0.608354 fresh_new=7.08569 persistent_new=2.91431 max_error=0 differences_over_1e-8=0 min_distance=-0.075458
+smooth pairs=51 fresh_us=0.637797 persistent_us=0.580839 fresh_new=7.07843 persistent_new=2.92157 max_error=0 differences_over_1e-8=0 min_distance=-0.0344997
+run=3
+random pairs=51 fresh_us=0.671266 persistent_us=0.600933 fresh_new=7.08569 persistent_new=2.91431 max_error=0 differences_over_1e-8=0 min_distance=-0.075458
+smooth pairs=51 fresh_us=0.636156 persistent_us=0.571332 fresh_new=7.07843 persistent_new=2.92157 max_error=0 differences_over_1e-8=0 min_distance=-0.0344997
+run=4
+random pairs=51 fresh_us=0.679296 persistent_us=0.601269 fresh_new=7.08569 persistent_new=2.91431 max_error=0 differences_over_1e-8=0 min_distance=-0.075458
+smooth pairs=51 fresh_us=0.657524 persistent_us=0.580588 fresh_new=7.07843 persistent_new=2.92157 max_error=0 differences_over_1e-8=0 min_distance=-0.0344997
+run=5
+random pairs=51 fresh_us=0.687901 persistent_us=0.611599 fresh_new=7.08569 persistent_new=2.91431 max_error=0 differences_over_1e-8=0 min_distance=-0.075458
+smooth pairs=51 fresh_us=0.643793 persistent_us=0.57286 fresh_new=7.07843 persistent_new=2.92157 max_error=0 differences_over_1e-8=0 min_distance=-0.0344997

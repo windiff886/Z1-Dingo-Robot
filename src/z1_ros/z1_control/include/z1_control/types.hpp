@@ -20,7 +20,9 @@ enum class Mode {
   Impedance,
   Stopping,
   AwaitResume,
-  Fault
+  Fault,
+  JointTrajectory,
+  CartesianPath
 };
 enum class Operation {
   Enable,
@@ -62,13 +64,16 @@ struct ModelConfig {
   std::vector<FixedBox> fixed_boxes;
 };
 struct Config {
-  double period{0.004}, feedback_timeout{0.08}, stream_timeout{0.2};
+  double period{0.002}, feedback_timeout{0.08}, stream_timeout{0.2};
+  double reference_preview{0.03}, reference_extrapolation{0.1},
+      reference_velocity_filter{0.01}, reference_horizon{0.5},
+      impedance_gain_time_constant{0.1};
   double collision_margin{0.008}, collision_warning{0.03};
   double position_tolerance{0.015}, velocity_tolerance{0.03},
       settle_timeout{3.0};
   double tcp_position_tolerance{0.005}, tcp_orientation_tolerance{0.025};
   double geometry_radius_bound{1.5}, validation_budget{2.0},
-      lookahead_budget{0.003};
+      lookahead_budget{0.0005};
   unsigned max_collision_samples{20000};
   Vec velocity{Vec::Constant(0.8)}, acceleration{Vec::Constant(1.5)},
       jerk{Vec::Constant(8)};
@@ -90,6 +95,8 @@ struct Snapshot {
   uint64_t overruns{};
   std::string collision_pair;
   std::string model_revision;
+  // Last accepted finite plan; seconds and dimensionless global time dilation.
+  double trajectory_duration{}, trajectory_time_scale{1};
 };
 inline bool validPose(const Pose &p) {
   return p.matrix().allFinite() &&
