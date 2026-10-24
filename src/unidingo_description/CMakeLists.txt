@@ -6,15 +6,10 @@ find_package(catkin REQUIRED)
 
 catkin_package()
 
-find_package(roslaunch)
-
-foreach(dir config launch meshes urdf)
-	install(DIRECTORY ${dir}/
-		DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/${dir})
-endforeach(dir)
-
-catkin_install_python(PROGRAMS
-	scripts/set_dual_arm_safe_pose.py
-	DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+install(DIRECTORY meshes urdf
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
+install(FILES README.md
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)

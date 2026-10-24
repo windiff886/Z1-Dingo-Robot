@@ -1,0 +1,10 @@
+<package format="2">
+  <name>dingo_test</name>
+  <version>0.1.0</version>
+  <description>Keyboard velocity control for the Dingo omnidirectional base.</description>
+  <maintainer email="TODO@email.com">TODO</maintainer>
+  <license>BSD</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+</package>
