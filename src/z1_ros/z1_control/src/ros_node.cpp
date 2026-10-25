@@ -114,7 +114,7 @@ class Node {
 public:
   Node() {
     planning_nh_.setCallbackQueue(&planning_queue_);
-    std::string urdf, backend, ip;
+    std::string urdf, ip;
     int port = 8881, budget = 1000;
     z1::RuntimeOptions runtime_options;
     params_.param("control_cpu", runtime_options.cpu_affinity, -1);
@@ -122,7 +122,11 @@ public:
     bool validated = false;
     if (!params_.getParam("model_file", urdf) || urdf.empty())
       throw std::runtime_error("model_file is required");
-    params_.param<std::string>("backend", backend, "simulation");
+    // Reject stale backend parameters rather than silently connecting hardware
+    // for an invocation that previously selected a simulator.
+    if (params_.hasParam("backend"))
+      throw std::runtime_error(
+          "backend selection has been removed; remove ~backend (MCU hardware only)");
     params_.param<std::string>("joint_prefix", prefix_, "");
     base_frame_ = prefix_ + "link00";
     params_.param("command_max_age", command_age_, 0.2);
@@ -210,27 +214,20 @@ public:
         model.fixed_boxes.push_back(box);
       }
     }
-    std::function<std::unique_ptr<z1::Transport>()> transport;
-    if (backend == "simulation")
-      transport = [model, this] {
-        return std::make_unique<z1::Simulation>(model, config_.period);
-      };
-    else if (backend == "udp") {
-      params_.param<std::string>("mcu_ip", ip, "192.168.123.110");
-      params_.param("local_port", port, 8881);
-      params_.param("receive_budget_us", budget, 1000);
-      params_.param("hardware_validated", validated, false);
-      if (port <= 0 || port > 65535 || budget <= 0 ||
-          budget * 1e-6 + config_.lookahead_budget >= config_.period)
-        throw std::runtime_error(
-            "invalid port or receive/check budgets leave no control time");
-      z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
-                        static_cast<unsigned>(budget), validated};
-      transport = [mcu] { return std::make_unique<z1::McuTransport>(mcu); };
-    } else
-      throw std::runtime_error("unknown backend: " + backend);
+    params_.param<std::string>("mcu_ip", ip, "192.168.123.110");
+    params_.param("local_port", port, 8881);
+    params_.param("receive_budget_us", budget, 1000);
+    params_.param("hardware_validated", validated, false);
+    if (port <= 0 || port > 65535 || budget <= 0 ||
+        budget * 1e-6 + config_.lookahead_budget >= config_.period)
+      throw std::runtime_error(
+          "invalid port or receive/check budgets leave no control time");
+    z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
+                      static_cast<unsigned>(budget), validated};
     runtime_ = std::make_unique<z1::Runtime>(
-        model, config_, std::move(transport), runtime_options);
+        model, config_,
+        [mcu] { return std::make_unique<z1::McuTransport>(mcu); },
+        runtime_options);
     joints_ = nh_.advertise<sensor_msgs::JointState>("joint_states", 1);
     tcp_ = nh_.advertise<geometry_msgs::PoseStamped>("tcp_pose", 1);
     status_ = nh_.advertise<z1_msgs::Status>("status", 1, true);

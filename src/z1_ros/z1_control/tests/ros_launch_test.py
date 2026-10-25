@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Verify the real dual_arm.launch with an isolated master and simulation only.
+"""Verify dual_arm.launch against loopback-only MCU protocol fixtures.
 
 Run after sourcing a ROS 1 workspace containing the new Z1 packages:
   python3 ros_launch_test.py /path/to/z1_bringup/launch/dual_arm.launch
 Requires ROS 1 robot_state_publisher, xacro, rospy, roslaunch and tf2_msgs.
+The production UDP driver is used; no physical robot or dynamics simulator.
 """
 import os
 from pathlib import Path
 import socket
 import sys
 import time
+from mcu_fixture import McuFixture, unused_local_port
 
 
 def main():
@@ -30,6 +32,7 @@ def main():
     master = Master(port=port)
     master.start()
     launcher = None
+    firmware = []
     try:
         rospy.init_node('z1_launch_smoke', disable_signals=True)
         states, transforms = {}, set()
@@ -45,9 +48,16 @@ def main():
 
         subscriptions.append(rospy.Subscriber('/tf', TFMessage, received_tf))
         subscriptions.append(rospy.Subscriber('/tf_static', TFMessage, received_tf))
+        firmware.append(McuFixture('127.0.0.1'))
+        firmware.append(McuFixture('127.0.0.2'))
+        left_port, right_port = unused_local_port(), unused_local_port()
+        while right_port == left_port:
+            right_port = unused_local_port()
         run_id = roslaunch.rlutil.get_or_generate_uuid(None, False)
         launcher = roslaunch.parent.ROSLaunchParent(
-            run_id, [(launch_file, ['backend:=simulation', 'hardware_validated:=false'])])
+            run_id, [(launch_file, ['hardware_validated:=true',
+                                   'left_ip:=127.0.0.1', 'right_ip:=127.0.0.2',
+                                   f'left_port:={left_port}', f'right_port:={right_port}'])])
         launcher.start()
         deadline = time.monotonic() + 12
         required = {(f'{side}_link00', f'{side}_link01')
@@ -66,10 +76,13 @@ def main():
             assert f'name="{side}_joint1"' in description
             assert f'{side}_link00' in description
         assert all(a.split('_')[0] == b.split('_')[0] for a, b in transforms), transforms
-        print('PASS: actual dual launch, independent namespaces, descriptions and prefixed TF')
+        assert all(peer.commands > 0 and peer.error is None for peer in firmware)
+        print('PASS: MCU-only dual launch over loopback, independent namespaces, descriptions and prefixed TF')
     finally:
         if launcher is not None:
             launcher.shutdown()
+        for peer in firmware:
+            peer.close()
         rospy.signal_shutdown('test complete')
         master.stop()
 

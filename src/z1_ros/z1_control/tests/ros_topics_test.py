@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Offline ROS 1 integration test. Starts an isolated master and TWO SIMULATION processes.
+"""ROS 1 integration test using the production MCU transport over loopback.
 
 Usage: ros_topics_test.py /path/to/z1_topic_node /path/to/z1_control.urdf
 Requires generated z1_msgs and normal ROS 1 Python/runtime dependencies.
-No UDP MCU driver, physical robot, global ROS master, or existing nodes are used.
+Uses two local protocol fixtures, no physical robot or dynamics simulator.
+Only loopback addresses are passed to the production node.
 """
 import os
 import sys
@@ -14,6 +15,7 @@ import subprocess
 import math
 import copy
 from pathlib import Path
+from mcu_fixture import McuFixture, unused_local_port
 
 
 def main():
@@ -38,11 +40,35 @@ def main():
     master.start()
     children = []
     logs = []
+    firmware = []
     try:
         rospy.init_node('z1_offline_integration', disable_signals=True)
+        for address in ('127.0.0.1', '127.0.0.2'):
+            firmware.append(McuFixture(address))
+        # Old backend selections must fail, including the old UDP spelling:
+        # silently ignoring a stale simulation flag could connect hardware.
+        for backend in ('simulation', 'udp'):
+            rejected = subprocess.run([
+                executable, '__ns:=/legacy_backend', '__name:=controller',
+                f'_backend:={backend}', f'_model_file:={model}',
+                '_mcu_ip:=127.0.0.1', '_hardware_validated:=true'],
+                capture_output=True, text=True, timeout=10)
+            assert rejected.returncode != 0, 'legacy backend parameter accepted'
+        gated = subprocess.run([
+            executable, '__ns:=/uncommissioned', '__name:=controller',
+            f'_model_file:={model}', '_mcu_ip:=127.0.0.1'],
+            capture_output=True, text=True, timeout=10)
+        assert gated.returncode != 0, 'uncommissioned MCU access accepted'
+        assert all(peer.packets == 0 for peer in firmware), 'startup guard allowed MCU access'
         states, joints, poses, results = {}, {}, {}, []
         subscribers = []
-        for arm in ('left', 'right'):
+        local_ports = set()
+        for index, arm in enumerate(('left', 'right'), start=1):
+            address = f'127.0.0.{index}'
+            local_port = unused_local_port()
+            while local_port in local_ports:
+                local_port = unused_local_port()
+            local_ports.add(local_port)
             ns = f'/{arm}_arm'
             for topic, cls, store in [('status', Status, states), ('joint_states', JointState, joints), ('tcp_pose', PoseStamped, poses)]:
                 subscribers.append(rospy.Subscriber(ns + '/' + topic, cls, lambda m, key=arm, target=store: target.__setitem__(key, m)))
@@ -50,7 +76,9 @@ def main():
             log = open(f'/tmp/z1-{arm}-integration.log', 'w')
             logs.append(log)
             children.append(subprocess.Popen([executable, f'__ns:={ns}', '__name:=controller',
-                '_backend:=simulation', f'_model_file:={model}', f'_joint_prefix:={arm}_'], stdout=log, stderr=log))
+                f'_mcu_ip:={address}', f'_local_port:={local_port}',
+                '_hardware_validated:=true', f'_model_file:={model}',
+                f'_joint_prefix:={arm}_'], stdout=log, stderr=log))
 
         def wait(predicate, why, timeout=8):
             deadline = time.monotonic() + timeout
@@ -61,7 +89,9 @@ def main():
                     if state.mode == Status.FAULT:
                         raise RuntimeError(f'{arm} fault: {state.reason}')
                 if any(p.poll() is not None for p in children):
-                    raise RuntimeError('simulation child exited; inspect /tmp/z1-*-integration.log')
+                    raise RuntimeError('MCU child exited; inspect /tmp/z1-*-integration.log')
+                if any(peer.error is not None for peer in firmware):
+                    raise RuntimeError(f'MCU fixture failed: {[peer.error for peer in firmware]}')
                 time.sleep(0.01)
             raise RuntimeError(why)
 
@@ -74,8 +104,8 @@ def main():
         began = time.monotonic()
         time.sleep(0.5)
         observed_rate = (states['left'].feedback_sequence - first) / (time.monotonic() - began)
-        assert 350 < observed_rate < 650, f'default simulation rate is not approximately 500 Hz: {observed_rate}'
-        print(f'observed default host simulation rate: {observed_rate:.1f} Hz')
+        assert observed_rate > 0, 'loopback MCU feedback stopped'
+        print(f'observed host loopback receive rate: {observed_rate:.1f} Hz; not a hardware rate measurement')
         control = rospy.Publisher('/left_arm/control', ControlCommand, queue_size=1)
         goal_pub = rospy.Publisher('/left_arm/joint_goal', JointGoal, queue_size=1)
         stream_pub = rospy.Publisher('/left_arm/joint_stream', JointStream, queue_size=1)
@@ -93,7 +123,6 @@ def main():
 
         operate(ControlCommand.ENABLE)
         wait(lambda: states['left'].mode == Status.HOLDING, 'enable failed')
-        time.sleep(1.5)  # settle computed-torque/gravity ramp before a finite movement
         goal = JointGoal();goal.command_id = 1;goal.speed_scale = 0.2
         goal.positions = list(joints['left'].position[:6]);goal.positions[0] += 0.03
         goal.header.stamp = rospy.Time.now();goal_pub.publish(goal)
@@ -222,7 +251,8 @@ def main():
         while states['right'].feedback_sequence <= before and time.monotonic() < deadline:
             time.sleep(0.02)
         assert children[1].poll() is None and states['right'].feedback_sequence > before
-        print('PASS: ROS 1 topics, timed/retimed trajectories, continuous joint waypoints, MoveL, legacy and timed derivative streams, online impedance gains, timeout/resume and two-process isolation')
+        assert all(peer.commands > 0 for peer in firmware), 'MCU command path not exercised'
+        print('PASS: MCU-only startup guards, real UDP codec, ROS 1 topics, timed/retimed trajectories, continuous joint waypoints, MoveL, legacy and timed derivative streams, online impedance gains, timeout/resume and two-process isolation')
     finally:
         for p in children:
             if p.poll() is None:
@@ -230,6 +260,7 @@ def main():
                 try:p.wait(timeout=5)
                 except subprocess.TimeoutExpired:p.kill();p.wait()
         for log in logs:log.close()
+        for peer in firmware:peer.close()
         rospy.signal_shutdown('test complete')
         master.stop()
 

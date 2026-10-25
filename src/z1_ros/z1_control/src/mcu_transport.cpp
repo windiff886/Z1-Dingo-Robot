@@ -59,7 +59,7 @@ struct McuTransport::Impl {
 McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
   if (!c.hardware_validated)
     throw std::runtime_error("MCU control requires hardware_validated=true "
-                             "after commissioning; simulation is available");
+                             "after hardware commissioning");
   if (c.receive_budget_us == 0 || c.receive_budget_us > 10000 ||
       !std::isfinite(c.period) || c.period <= 0 ||
       c.receive_budget_us >= c.period * 1e6)

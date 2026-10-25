@@ -10,38 +10,6 @@ double monotonicTime() {
              std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
-struct Simulation::Impl {
-  Model model;
-  Vec q{(Vec() << 0, 0.8, -1.1, 0.3, 0, 0).finished()}, dq{Vec::Zero()};
-  double dt;
-  uint64_t seq{};
-  Impl(ModelConfig m, double p) : model(m), dt(p) {}
-};
-Simulation::Simulation(ModelConfig m, double p) : impl_(new Impl(m, p)) {}
-Simulation::~Simulation() = default;
-Exchange Simulation::exchange(const Output &o, double now) {
-  auto &p = *impl_;
-  Vec tau = o.enabled ? o.tau : Vec::Zero();
-  if (o.enabled) {
-    // Eight substeps improve stability; no contact dynamics or firmware
-    // emulation.
-    for (int i = 0; i < 8; ++i) {
-      Vec a = p.model.forwardDynamics(p.q, p.dq, tau - 0.002 * p.dq);
-      p.dq += a * (p.dt / 8);
-      p.q += p.dq * (p.dt / 8);
-    }
-  } else
-    p.dq.setZero(); // Simulator has an ideal passive brake, not a Z1 hardware
-                    // guarantee.
-  Feedback f;
-  f.q = p.q;
-  f.dq = p.dq;
-  f.tau = tau;
-  f.received_at = now;
-  f.sequence = ++p.seq;
-  f.fresh = true;
-  return {f, true, {}};
-}
 Runtime::Runtime(ModelConfig m, Config c, std::unique_ptr<Transport> t,
                  RuntimeOptions options)
     : controller_(m, c), config_(c), transport_(std::move(t)),

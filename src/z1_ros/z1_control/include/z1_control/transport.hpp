@@ -29,14 +29,4 @@ private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
-class Simulation final : public Transport {
-public:
-  Simulation(ModelConfig, double period);
-  ~Simulation();
-  Exchange exchange(const Output &, double) override;
-
-private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-};
 } // namespace z1

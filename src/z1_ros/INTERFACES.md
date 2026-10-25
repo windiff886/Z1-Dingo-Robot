@@ -61,15 +61,14 @@
 ## 4. 示例
 
 ```bash
-# 单臂启动默认 namespace=arm, prefix=arm_
-roslaunch z1_bringup arm.launch
+# 完成真机现场验收后启动；默认 namespace=arm, prefix=arm_
+roslaunch z1_bringup arm.launch hardware_validated:=true
 
-# 使能：仿真等待反馈稳定后发送目标
+# 反馈有效、现场姿态静止且间距足够时使能
 rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 1, operation: 0}'
 
-# 小幅有限关节目标；关节2/3需要满足其非对称限位
-rostopic pub -1 /arm/joint_goal z1_msgs/JointGoal \
-  '{command_id: 2, positions: [0.05, 0.8, -1.1, 0.3, 0.0, 0.0], speed_scale: 0.2}'
+# 等待 Holding 后，从当前反馈构造有限目标；示例见 README 第 8 节。
+# 不假定真机初始姿态；关节2/3需要满足其非对称限位。
 
 # 流式模式，先读取 status.session_id，之后发布带当前 stamp 和递增 sequence 的目标
 rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 3, operation: 4}'
