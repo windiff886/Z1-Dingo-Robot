@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>unidingo_rviz_test</name>
+  <version>1.0.0</version>
+  <description>Whole-robot RViz TCP target sender for the Z1 hardware topic interface.</description>
+  <maintainer email="maintainer@example.com">Z1-Dingo contributors</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>interactive_markers</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <exec_depend>z1_msgs</exec_depend>
+  <exec_depend>z1_bringup</exec_depend>
+  <exec_depend>uni_dingo</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <test_depend>python3-numpy</test_depend>
+</package>

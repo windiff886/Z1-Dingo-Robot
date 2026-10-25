@@ -7,9 +7,13 @@
   <arg name="config" default="$(find z1_bringup)/config/control.yaml"/>
   <arg name="model_file" default="$(find z1_description)/urdf/z1_control.urdf"/>
   <arg name="description_file" default="$(find z1_description)/urdf/z1.urdf.xacro"/>
+  <!-- A whole-robot launch owns robot_description and TF when false. -->
+  <arg name="publish_description" default="true"/>
   <group ns="$(arg namespace)">
-    <param name="robot_description" command="$(find xacro)/xacro '$(arg description_file)' prefix:=$(arg prefix)"/>
-    <node pkg="robot_state_publisher" type="robot_state_publisher" name="state_publisher" output="screen"/>
+    <group if="$(arg publish_description)">
+      <param name="robot_description" command="$(find xacro)/xacro '$(arg description_file)' prefix:=$(arg prefix)"/>
+      <node pkg="robot_state_publisher" type="robot_state_publisher" name="state_publisher" output="screen"/>
+    </group>
     <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen" required="false">
       <rosparam command="load" file="$(arg config)"/>
       <param name="model_file" value="$(arg model_file)"/>

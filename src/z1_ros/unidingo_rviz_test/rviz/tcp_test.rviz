@@ -1,0 +1,55 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+  - Class: rviz/Selection
+    Name: Selection
+  - Class: rviz/Tool Properties
+    Name: Tool Properties
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 40; 42; 46
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.1
+      Plane Cell Count: 30
+    - Class: rviz/RobotModel
+      Name: Measured robot
+      Enabled: true
+      Robot Description: robot_description
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz/InteractiveMarkers
+      Name: TCP targets - drag then release
+      Enabled: true
+      Update Topic: /rviz_tcp_test/targets/update
+      Show Axes: true
+      Show Descriptions: true
+    - Class: rviz/MarkerArray
+      Name: Controller status
+      Enabled: true
+      Marker Topic: /rviz_tcp_test/status_markers
+    - Class: rviz/TF
+      Name: TF
+      Enabled: false
+  Tools:
+    - Class: rviz/Interact
+      Hide Inactive Objects: false
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 2.7
+      Focal Point: {X: 0.1, Y: 0, Z: 0.65}
+      Pitch: 0.35
+      Yaw: 0.8
+  Name: root
+Window Geometry:
+  Width: 1440
+  Height: 900

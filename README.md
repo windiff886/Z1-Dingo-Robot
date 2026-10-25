@@ -38,7 +38,13 @@ roslaunch pan_tilt_bringup panTilt_bringup.launch
 roslaunch d455_camera d455_camera_nodelet.launch
 ```
 
-设备连接与各自的控制方法见 [Dingo](src/dingo/README.md)、[Pan-Tilt](src/pan_tilt_ros/README.md)和 [D455](src/d455_camera/README.md)。当前仓库没有 `unidingo_bringup` 或 `whole_body_example` 包，整机联合启动和遥操作应在后续编排中接入这些组件入口。
+设备连接与各自的控制方法见 [Dingo](src/dingo/README.md)、[Pan-Tilt](src/pan_tilt_ros/README.md)和 [D455](src/d455_camera/README.md)。各组件仍按独立接口运行。
+
+## RViz 末端目标测试
+
+[unidingo_rviz_test](src/z1_ros/unidingo_rviz_test/README.md) 提供包含双臂、底盘、云台和相机的完整模型，通过拖动 TCP 手柄、松开鼠标发送末端目标。目标从 `base_link` 经 TF 转换到对应的 `left_link00` / `right_link00`，进入原有机械臂控制链路。该入口不自动使能，也不提供双臂互碰或整机绕障规划。
+
+详细坐标系分析、ROS 1 部署机启动步骤及离线验证边界见该包说明。本次未在本机启动 ROS 1 或连接硬件。
 
 ## 代码与文档
 
@@ -49,6 +55,7 @@ roslaunch d455_camera d455_camera_nodelet.launch
 | `src/pan_tilt_ros/` | 云台驱动、消息及启动 |
 | `src/d455_camera/` | D455 相机 nodelet 驱动 |
 | `src/unidingo_description/` | 组合机器人描述与网格 |
+| `src/z1_ros/unidingo_rviz_test/` | 整机 RViz 显示、TCP 拖动目标发送及离线验证 |
 
 - [机械臂运行逻辑](src/z1_ros/README.md)
 - [机械臂接口契约](src/z1_ros/INTERFACES.md)

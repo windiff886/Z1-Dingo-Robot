@@ -4,6 +4,7 @@
 
 - 主臂顺序固定 `joint1..joint6`；角度 rad，速度 rad/s，主臂力矩 Nm，位置 m。
 - TCP 位姿 quaternion `(x,y,z,w)` 需单位长度。frame_id 必须是该臂的 `<prefix>link00`，例如 `left_link00`；不隐式查询 TF 转换。
+- 默认 TCP 为 `tool`，相对 `link06` 固定平移 `(0.051,0,0)` m、无旋转，不随夹爪开合改变。[整机 RViz 测试发送器](unidingo_rviz_test/README.md) 在上层做 TF 转换，控制器本身的 frame 契约保持不变。
 - `joint_states` 的 name 带前缀；夹爪存在时追加 `<prefix>gripper_motor`，这是独立电机反馈，不声称对应描述模型的某个夹爪连杆角度。
 - 命令 header.stamp：有限目标/控制可为零（按接收处理），流式必须非零；默认允许过去 200 ms、未来 20 ms。有效流式帧的 ROS 时龄会扣减单调时钟有效期，延迟帧不会获得完整的新有效期；无效帧不续期。
 - 内核超时使用单调时钟；ROS 时间跳变不重置控制期限。ROS header 是发布时刻，实际有效接收序号和接收时龄位于 status。没有固件采样时刻。

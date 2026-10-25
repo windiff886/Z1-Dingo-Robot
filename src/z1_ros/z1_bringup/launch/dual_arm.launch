@@ -1,5 +1,6 @@
 <launch>
   <arg name="hardware_validated" default="false"/>
+  <arg name="publish_description" default="true"/>
   <arg name="left_ip" default="192.168.123.110"/>
   <arg name="right_ip" default="192.168.123.111"/>
   <arg name="left_config" default="$(find z1_bringup)/config/control.yaml"/>
@@ -12,12 +13,14 @@
   <arg name="right_description_file" default="$(find z1_description)/urdf/z1.urdf.xacro"/>
   <include file="$(find z1_bringup)/launch/arm.launch">
     <arg name="namespace" value="left_arm"/><arg name="prefix" value="left_"/>
+    <arg name="publish_description" value="$(arg publish_description)"/>
     <arg name="mcu_ip" value="$(arg left_ip)"/><arg name="local_port" value="$(arg left_port)"/>
     <arg name="hardware_validated" value="$(arg hardware_validated)"/><arg name="config" value="$(arg left_config)"/>
     <arg name="model_file" value="$(arg left_model_file)"/><arg name="description_file" value="$(arg left_description_file)"/>
   </include>
   <include file="$(find z1_bringup)/launch/arm.launch">
     <arg name="namespace" value="right_arm"/><arg name="prefix" value="right_"/>
+    <arg name="publish_description" value="$(arg publish_description)"/>
     <arg name="mcu_ip" value="$(arg right_ip)"/><arg name="local_port" value="$(arg right_port)"/>
     <arg name="hardware_validated" value="$(arg hardware_validated)"/><arg name="config" value="$(arg right_config)"/>
     <arg name="model_file" value="$(arg right_model_file)"/><arg name="description_file" value="$(arg right_description_file)"/>

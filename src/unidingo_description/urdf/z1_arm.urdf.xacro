@@ -269,6 +269,14 @@
       </inertial>
     </link>
 
+    <!-- Match z1_control.urdf: TCP is fixed, not the moving gripper finger. -->
+    <link name="${prefix}tool"/>
+    <joint name="${prefix}tool_mount" type="fixed">
+      <parent link="${prefix}link06"/>
+      <child link="${prefix}tool"/>
+      <origin xyz="0.051 0 0" rpy="0 0 0"/>
+    </joint>
+
     <!-- Unitree Gripper (可选) -->
     <xacro:if value="${UnitreeGripper}">
       <joint name="${prefix}gripperStator_joint" type="fixed">

@@ -1,0 +1,35 @@
+<launch>
+  <!-- Attach existing controllers by default; no implicit MCU connection. -->
+  <arg name="start_arms" default="false"/>
+  <arg name="hardware_validated" default="false"/>
+  <arg name="left_ip" default="192.168.123.110"/>
+  <arg name="right_ip" default="192.168.123.111"/>
+  <arg name="left_port" default="8881"/>
+  <arg name="right_port" default="8882"/>
+  <arg name="left_config" default="$(find z1_bringup)/config/control.yaml"/>
+  <arg name="right_config" default="$(find z1_bringup)/config/control.yaml"/>
+  <arg name="rviz" default="true"/>
+  <arg name="send_on_release" default="true"/>
+  <arg name="speed_scale" default="0.15"/>
+  <!-- Wheel/pan-tilt feedback; never remap this to the bridge output. -->
+  <arg name="aux_joint_states" default="/joint_states"/>
+
+  <include if="$(arg start_arms)" file="$(find z1_bringup)/launch/dual_arm.launch">
+    <arg name="hardware_validated" value="$(arg hardware_validated)"/>
+    <arg name="publish_description" value="false"/>
+    <arg name="left_ip" value="$(arg left_ip)"/><arg name="right_ip" value="$(arg right_ip)"/>
+    <arg name="left_port" value="$(arg left_port)"/><arg name="right_port" value="$(arg right_port)"/>
+    <arg name="left_config" value="$(arg left_config)"/><arg name="right_config" value="$(arg right_config)"/>
+  </include>
+
+  <param name="robot_description" command="$(find xacro)/xacro '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro' UnitreeGripper:=true PanTilt:=true"/>
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="whole_robot_state_publisher">
+    <remap from="joint_states" to="/rviz_tcp_test/joint_states"/>
+  </node>
+  <node pkg="unidingo_rviz_test" type="interactive_tcp_test.py" name="rviz_tcp_test" output="screen" required="true">
+    <param name="send_on_release" value="$(arg send_on_release)"/>
+    <param name="speed_scale" value="$(arg speed_scale)"/>
+    <param name="aux_joint_states" value="$(arg aux_joint_states)"/>
+  </node>
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" args="-d $(find unidingo_rviz_test)/rviz/tcp_test.rviz"/>
+</launch>

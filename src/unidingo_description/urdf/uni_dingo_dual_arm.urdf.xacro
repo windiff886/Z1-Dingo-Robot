@@ -35,6 +35,7 @@
 
   <!-- 引入 Pan-Tilt 云台 macro -->
   <xacro:include filename="$(find pan_tilt_description)/urdf/pan_tilt.urdf.xacro"/>
+  <xacro:include filename="$(find uni_dingo)/urdf/d455_visual.urdf.xacro"/>
 
   <!-- ========== Dingo 底盘（官方描述） ========== -->
   <xacro:include filename="$(find dingo_description)/urdf/dingo.urdf.xacro"/>
@@ -195,13 +196,9 @@
     </joint>
 
     <!-- D455 相机（挂载到相机支撑柱顶端） -->
-    <xacro:realsense_sensor rs_model="d455"
-                            prefix="head"
-                            parent="camera_support_link"
-                            topic="d455"
-                            include="0">
+    <xacro:d455_visual parent="camera_support_link">
       <origin xyz="0 0 ${camera_mount_z}" rpy="0 0 0"/>
-    </xacro:realsense_sensor>
+    </xacro:d455_visual>
 
   </xacro:if>
 
