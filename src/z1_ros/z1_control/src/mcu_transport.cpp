@@ -1,48 +1,10 @@
 #include "IOInterface/IOUDP/IOUDP.h"
 #include "udp_observer.hpp"
 #include "z1_control/transport.hpp"
-#include <dlfcn.h>
-#include <fstream>
-#include <iomanip>
-#include <openssl/evp.h>
-#include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
 namespace z1 {
-namespace {
-void verifyLibrary() {
-  Dl_info info{};
-  void *symbol = dlsym(RTLD_DEFAULT, "_ZN5IOUDPC1EPKcj");
-  if (!symbol || !dladdr(symbol, &info))
-    throw std::runtime_error("cannot identify vendor IOUDP library");
-  std::ifstream f(info.dli_fname, std::ios::binary);
-  if (!f)
-    throw std::runtime_error("cannot verify vendor binary");
-  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(),
-                                                              EVP_MD_CTX_free);
-  if (!ctx || EVP_DigestInit_ex(ctx.get(), EVP_sha256(), nullptr) != 1)
-    throw std::runtime_error("cannot initialize binary fingerprint");
-  char bytes[32768];
-  while (f) {
-    f.read(bytes, sizeof(bytes));
-    if (EVP_DigestUpdate(ctx.get(), bytes, f.gcount()) != 1)
-      throw std::runtime_error("cannot hash vendor binary");
-  }
-  if (!f.eof())
-    throw std::runtime_error("vendor binary read failed");
-  unsigned char hash[EVP_MAX_MD_SIZE];
-  unsigned length = 0;
-  if (EVP_DigestFinal_ex(ctx.get(), hash, &length) != 1 || length != 32)
-    throw std::runtime_error("cannot finalize binary fingerprint");
-  std::ostringstream hex;
-  for (unsigned i = 0; i < length; ++i)
-    hex << std::hex << std::setw(2) << std::setfill('0')
-        << static_cast<int>(hash[i]);
-  if (hex.str() != Z1_VENDOR_HASH)
-    throw std::runtime_error("vendor binary fingerprint mismatch");
-}
-} // namespace
 struct McuTransport::Impl {
   udp::Observer observer;
   std::unique_ptr<IOUDP> io;
@@ -57,14 +19,10 @@ struct McuTransport::Impl {
   }
 };
 McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
-  if (!c.hardware_validated)
-    throw std::runtime_error("MCU control requires hardware_validated=true "
-                             "after hardware commissioning");
   if (c.receive_budget_us == 0 || c.receive_budget_us > 10000 ||
       !std::isfinite(c.period) || c.period <= 0 ||
       c.receive_budget_us >= c.period * 1e6)
     throw std::runtime_error("invalid MCU receive budget/period");
-  verifyLibrary();
   auto &p = *impl_;
   p.observer.budget_us = 30000;
   udp::Scope scope(p.observer);

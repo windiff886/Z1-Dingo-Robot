@@ -21,7 +21,7 @@ MCU -> joint_states / tcp_pose / status / result
     -> RViz 实际机器人模型、初始目标位置和状态文字
 ```
 
-这里的 SDK 执行入口是当前项目保留的官方底层通信库。位姿 IK、轨迹、动力学及反馈 PD 在主机的 `z1_core` 中实现，不是将一个位姿直接交给官方高层运动函数。主臂 MCU 的位置 Kp/Kd 为零，由主机发送 q/dq/tau；启动依然要求项目原有的 `hardware_validated` 条件，成功连接后仍处于 Disabled，需要主动 ENABLE。
+这里的 SDK 执行入口是官方底层通信库。位姿 IK、轨迹、动力学及反馈 PD 在主机的 `z1_core` 中实现。主臂 MCU 的位置 Kp/Kd 为零，由主机发送 q/dq/tau；连接后处于 Disabled，通过 ENABLE 进入保持状态。
 
 控制器的 `pose_goal` 只在 Holding 接收一个有限目标。内部 IK 失败、超出限位、几何路径检查失败都会 REJECTED；ACCEPTED 只表示已经接受，SUCCEEDED 还要等待实际关节和 TCP 到位且稳定。末端到目标之间沿关节轨迹运动，这个入口没有指定末端沿直线行进。
 
@@ -79,27 +79,23 @@ T(arm_base -> target) = inverse(T(base_link -> arm_base)) * T(base_link -> targe
 roslaunch unidingo_rviz_test rviz_tcp_test.launch
 ```
 
-若需要由测试入口一并启动双臂，现场满足原有真机验收条件后使用：
+由测试入口一并启动双臂：
 
 ```bash
-roslaunch unidingo_rviz_test rviz_tcp_test.launch \
-  start_arms:=true hardware_validated:=true \
-  left_ip:=192.168.123.110 right_ip:=192.168.123.111 \
-  left_port:=8881 right_port:=8882
+roslaunch unidingo_rviz_test rviz_tcp_test.launch start_arms:=true
 ```
 
 也可以分开启动双臂与电脑端可视化。双臂入口需要关闭独立单臂描述发布：
 
 ```bash
 # 机器人端
-roslaunch z1_bringup dual_arm.launch \
-  hardware_validated:=true publish_description:=false
+roslaunch z1_bringup arm.launch publish_description:=false
 
 # 电脑端，与机器人端使用同一 ROS_MASTER_URI，网络配置确保相互可达
 roslaunch unidingo_rviz_test rviz_tcp_test.launch
 ```
 
-整机 `robot_state_publisher` 是本测试中唯一的机器人 TF 发布者。不能同时再运行旧的两个单臂 `state_publisher`，否则会重复发布同名 TF。`publish_description` 在原有单臂、双臂入口中默认仍为 true，只在本测试统一发布模型时关闭。
+整机 `robot_state_publisher` 统一发布本测试中的机器人 TF。`publish_description` 在机械臂入口中默认 true，本测试统一发布模型时设为 false。
 
 若同时使用其他组件驱动，Dingo 应使用 `load_description:=false publish_imu_tf:=false`，避免覆盖整机 `robot_description` 或重复发布 `imu_link` 的父变换；云台入口保持默认 `pub_urdf:=false`。相机驱动只发布图像，光学帧由本整机模型提供。
 
@@ -117,7 +113,7 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 roslaunch unidingo_rviz_test rviz_tcp_test.launch send_on_release:=false
 ```
 
-其他参数：`rviz:=false` 仅关闭 GUI 启动；`left_config`、`right_config` 可指定已校准的控制配置；`aux_joint_states` 默认 `/joint_states`，用于接入已有的底盘/云台状态。没有自动使能、自动恢复或旧目标重试。
+其他参数：`rviz:=false` 仅关闭 GUI 启动；`arm_config` 指定双臂通信 YAML，默认使用 `z1_bringup/config/communication.yaml`；`aux_joint_states` 默认 `/joint_states`，用于接入底盘/云台状态。使能、恢复和新目标发送由用户操作触发。
 
 观察命令示例（部署机使用）：
 

@@ -15,6 +15,7 @@ import subprocess
 import math
 import copy
 from pathlib import Path
+import yaml
 from mcu_fixture import McuFixture, unused_local_port
 
 
@@ -45,21 +46,9 @@ def main():
         rospy.init_node('z1_offline_integration', disable_signals=True)
         for address in ('127.0.0.1', '127.0.0.2'):
             firmware.append(McuFixture(address))
-        # Old backend selections must fail, including the old UDP spelling:
-        # silently ignoring a stale simulation flag could connect hardware.
-        for backend in ('simulation', 'udp'):
-            rejected = subprocess.run([
-                executable, '__ns:=/legacy_backend', '__name:=controller',
-                f'_backend:={backend}', f'_model_file:={model}',
-                '_mcu_ip:=127.0.0.1', '_hardware_validated:=true'],
-                capture_output=True, text=True, timeout=10)
-            assert rejected.returncode != 0, 'legacy backend parameter accepted'
-        gated = subprocess.run([
-            executable, '__ns:=/uncommissioned', '__name:=controller',
-            f'_model_file:={model}', '_mcu_ip:=127.0.0.1'],
-            capture_output=True, text=True, timeout=10)
-        assert gated.returncode != 0, 'uncommissioned MCU access accepted'
-        assert all(peer.packets == 0 for peer in firmware), 'startup guard allowed MCU access'
+        config_dir = Path(__file__).resolve().parents[2] / 'z1_bringup/config'
+        communication = yaml.safe_load((config_dir / 'communication.yaml').read_text())
+        control = yaml.safe_load((config_dir / 'control.yaml').read_text())
         states, joints, poses, results = {}, {}, {}, []
         subscribers = []
         local_ports = set()
@@ -75,10 +64,14 @@ def main():
             subscribers.append(rospy.Subscriber(ns + '/result', MotionResult, lambda m: results.append(m)))
             log = open(f'/tmp/z1-{arm}-integration.log', 'w')
             logs.append(log)
-            children.append(subprocess.Popen([executable, f'__ns:={ns}', '__name:=controller',
-                f'_mcu_ip:={address}', f'_local_port:={local_port}',
-                '_hardware_validated:=true', f'_model_file:={model}',
-                f'_joint_prefix:={arm}_'], stdout=log, stderr=log))
+            parameters = dict(control)
+            parameters.update(communication[f'{arm}_arm']['controller'])
+            parameters.update(mcu_ip=address, local_port=local_port,
+                              model_file=model, joint_prefix=f'{arm}_')
+            rospy.set_param(ns + '/controller', parameters)
+            children.append(subprocess.Popen(
+                [executable, f'__ns:={ns}', '__name:=controller'],
+                stdout=log, stderr=log))
 
         def wait(predicate, why, timeout=8):
             deadline = time.monotonic() + timeout

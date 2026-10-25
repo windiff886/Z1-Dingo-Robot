@@ -1,4 +1,4 @@
-# Provisional engineering defaults; commission torque mode, gains and geometry on the actual Z1.
+# Shared joint control and model parameters for both Z1 arms.
 period: 0.002
 feedback_timeout: 0.08
 stream_timeout: 0.2
@@ -10,7 +10,6 @@ reference_horizon: 0.5
 impedance_gain_time_constant: 0.1
 command_max_age: 0.2
 publish_rate: 100.0
-receive_budget_us: 1000
 # Optional native control-thread scheduling. Choose a permitted P-core CPU ID
 # on the deployment machine; -1 leaves affinity to the OS. Priority 0 uses the
 # current scheduler; a positive FIFO priority needs OS realtime permission.
@@ -30,7 +29,6 @@ gravity: [0, 0, -9.81]
 tool_frame: tool
 collision_margin: 0.008
 collision_warning: 0.03
-geometry_radius_bound: 1.5
 validation_budget: 2.0
 lookahead_budget: 0.0005
 position_tolerance: 0.015

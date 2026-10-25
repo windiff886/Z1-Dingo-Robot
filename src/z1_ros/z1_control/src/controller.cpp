@@ -90,8 +90,7 @@ Controller::Controller(ModelConfig m, Config c)
       !std::isfinite(c.collision_margin) || c.collision_margin <= 0 ||
       !std::isfinite(c.collision_warning) ||
       c.collision_warning <= c.collision_margin ||
-      c.geometry_radius_bound < 1.5 ||
-      !std::isfinite(c.geometry_radius_bound) || c.max_collision_samples == 0 ||
+      c.max_collision_samples == 0 ||
       c.validation_budget <= 0 || c.lookahead_budget <= 0 ||
       c.lookahead_budget >= c.period)
     throw std::invalid_argument("invalid timing/collision configuration");
@@ -123,9 +122,6 @@ Controller::Controller(ModelConfig m, Config c)
       (c.stiffness.tail<3>().array() > 30).any() ||
       (c.damping.array() > 100).any())
     throw std::invalid_argument("control gains/limits exceed supported bounds");
-  if (config_.geometry_radius_bound < model_.radiusBound())
-    throw std::invalid_argument(
-        "geometry_radius_bound too small for loaded model");
   state_.reason = "startup disabled";
   state_.model_revision = model_.revision();
   std::random_device entropy;

@@ -2,7 +2,7 @@
 
 初次重构记录：2026-10-11；2026-10-23 的性能升级、默认 500 Hz 和预计算轨迹/笛卡尔路径分别见第 7、8、9 节。当前原生控制周期默认 2 ms，ROS 状态发布默认 100 Hz。尚未完成实际 Z1 的调试和验收，本记录区分已运行的测试与仍需现场确认的设备行为。
 
-2026-10-25 范围更正：当前只考虑真机，已移除运行时仿真后端、`backend` 启动参数、standalone 仿真演示及依赖它的三个动力学仿真探针。启动固定使用 MCU 通信，仍要求现场验收和显式使能；旧后端参数会报错。第 4、7、8、9 节中的仿真、standalone 和既有性能数值为历史验证记录，不代表当前运行功能。ROS 测试现改用仅绑定本机地址的 MCU 报文夹具，软件测试不提供运行模式。本次检查结果见第 10 节，决定见 [ADR 0003](../../docs/adr/0003-z1-hardware-only-runtime.md)。
+当前运行入口为 `roslaunch z1_bringup arm.launch`，启动左右两个机械臂控制进程。通信参数来自 `z1_bringup/config/communication.yaml`，控制参数来自 `z1_bringup/config/control.yaml`。下文性能数据按原实验环境记录，真机表现以设备测量为准。
 
 ## 1. 已交付
 
@@ -12,16 +12,16 @@
 | 执行控制 | 有限关节/末端目标、定时轨迹、关节连续过点、MoveL/笛卡尔圆滑路径、两类流式目标、笛卡尔阻抗；实测到达判定与受控停止 |
 | 通信 | 官方 IOUDP 的握手和编解码；补充可观测 UDP 接收、来源/长度检查、测量时龄、积压上限和 V2 电机状态检查 |
 | ROS 1 | 十六种自定义消息及单臂 topic 节点，包含流式参考、完整定时轨迹与路径；两臂使用同一组件的独立进程，无全身 API |
-| 启动与模型 | 仅真机 MCU；单臂/双臂 launch；逐臂配置、模型、描述、IP、端口；关节及 TF 前缀；模型配置指纹 |
+| 启动与模型 | 真机 MCU；双臂 launch；逐臂 YAML 通信配置；关节及 TF 前缀；模型配置指纹 |
 | 文档 | 简洁 README、完整 topic 契约、当前需求基线和本实施记录 |
 
 未引入力传感器、外力估计、接触力闭环或整机遥操。`pose_goal` 是终点 IK 后的关节运动，流式位姿采用局部差分 IK；需要指定直线路径时使用新 `linear_path`。当前均不自动绕障。固定安装结构支持配置盒状几何；另一臂和动态环境未纳入本轮模型。
 
-## 2. 旧链路删除
+## 2. 组件布局
 
-已删除 `z1_controller`、`z1_sdk`、`z1_hw`、两套 MoveIt 配置、`z1_examples`、`z1_rviz`、`unitree_ros` 和旧控制说明/启动文件。原描述网格及供整机描述使用的 xacro 常量迁入 `z1_description`。必要 MCU 头文件、许可证及 x86_64/aarch64 官方动态库集中保留在 `vendor/unitree`。
+模型、网格和显示常量位于 `z1_description`。MCU 头文件、许可证及 x86_64/aarch64 官方动态库位于 `vendor/unitree`。
 
-新进程不运行旧 FSM、不使用 SDK 本机 UDP 中转、不依赖 MoveIt/ros_control/Gazebo 控制链路。其余组件中引用旧机械臂 launch 的整机入口留给后续整机重构；本轮没有改写其他组件。
+每个机械臂进程由独立控制内核、ROS 1 Topic 适配和 MCU 通信组成。
 
 ## 3. 实施中修正的契约
 
@@ -33,7 +33,7 @@
 - 非有限测量、过期测量、超限速度及设备错误按无效反馈处理；ROS 的 `feedback_valid` 使用内核的完整判断，避免无效测量被标成有效并发布旧 TCP。
 - 主关节 MCU Kp/Kd 为零，位置控制由上位机计算力矩，动力学补偿只计入一次。主臂力矩限幅及限变化率；阻抗停止清除旧目标并生成制动参考。
 - ROS 节点先完成模型/参数验证，再初始化通信。正常退出尝试有时限的受控停止及最终被动报文，不声称获得固件停止确认。
-- 安装后的可执行程序和 MCU 适配库设置运行库搜索路径，官方库在构建及实际加载时检查 SHA-256。
+- 安装后的可执行程序和 MCU 适配库设置运行库搜索路径，从安装目录加载官方通信库。
 
 ## 4. 首次重构的历史验证
 
@@ -46,11 +46,11 @@
 | 独立 Release 构建 | 通过：控制内核、MCU 适配、standalone、两个 CTest 程序 |
 | `arm_core` | 通过：FK/IK、不可达目标、RNEA/ABA 重力一致性、端点安全但中段碰撞的拒绝、有限目标、参考 v/a/jerk、力矩变化率、两类流式和阻抗、时效/会话、无效反馈、实例隔离、参数先验验证 |
 | `vendor_transport_contract` | 通过：实际官方动态库与纯内存端口；确认失败返回值缺口；不创建网络套接字 |
-| `mcu_udp_loopback` | 通过：真实 localhost UDP 和官方编解码；V1/V2、六/七电机、握手、原始反馈、静止新包、丢包、错误长度/来源、电机错误/过温/断连、端口冲突和真机门槛 |
+| `mcu_udp_loopback` | 通过：真实 localhost UDP 和官方编解码；V1/V2、六/七电机、握手、原始反馈、静止新包、丢包、错误长度/来源、电机错误/过温/断连、端口冲突 |
 | 安装后执行 | 通过：安装目录 standalone 完成小幅关节目标并报告实测成功；安装后的 MCU 库完成回环及加载指纹验证 |
 | ROS 1 构建 | 通过：九种消息生成 C++/Python/Lisp；真实 roscpp topic 节点编译链接 |
 | `ros_topics_test.py` | 通过：隔离 master、两个独立仿真进程、命名空间/关节前缀、有限目标、NaN 拒绝、两类连续目标、阻抗、超时停止、显式恢复和新会话；一臂退出另一臂继续反馈 |
-| `ros_launch_test.py` | 通过：实际 dual_arm.launch 启动四个 ROS 1 节点；两臂默认失能且反馈有效，分别加载 robot_description，robot_state_publisher 发布左右前缀的 TF |
+| `ros_launch_test.py` | 通过：实际 arm.launch 启动四个 ROS 1 节点；两臂默认失能且反馈有效，分别加载 robot_description，robot_state_publisher 发布左右前缀的 TF |
 | 模型与 XML | 通过：package/launch/model XML；实际 xacro 左右前缀展开；显示模型与控制 URDF 一致；网格路径存在 |
 
 ROS topic 测试退出时，临时 master 对已经退出的订阅者可能报告 `ConnectionRefusedError`；控制测试断言和退出码通过。仿真没有接触模型或真实 MCU 看门狗，其失能状态使用理想制动。aarch64 动态库已保留并校验指纹，本轮未在该架构编译运行。
@@ -65,14 +65,14 @@ python3 src/z1_ros/z1_control/tests/ros_topics_test.py \
   src/z1_ros/z1_description/urdf/z1_control.urdf
 
 python3 src/z1_ros/z1_control/tests/ros_launch_test.py \
-  src/z1_ros/z1_bringup/launch/dual_arm.launch
+  src/z1_ros/z1_bringup/launch/arm.launch
 ```
 
 第一条需将节点路径替换为实际 catkin devel/install 可执行程序路径。两条测试均创建临时 master，生产节点通过 MCU 通信连接 127.0.0.1/127.0.0.2 上的协议夹具，反馈直接跟随发送的关节参考，不计算动力学，也不连接实际设备。第二条还需要可发现的 Z1 包、ROS 1 robot_state_publisher、xacro 及 tf2_msgs。各测试需要独占本机回环地址上的 UDP 8880 端口，请顺序运行。
 
 ## 6. 真机待验收
 
-UDP 启动默认 `hardware_validated=false`，明确验收后才由现场人员启用。以下无法通过当前离线环境完成：
+以下设备行为需要真机测量，离线计算与协议夹具覆盖软件契约：
 
 1. 确认固件版本、原始 q/dq/tau 的单位与轴方向、主关节零增益/力矩执行语义，以及设备是否已经进行其他补偿。
 2. 测量工具/夹爪/负载质量、质心与惯性，核实 TCP 及完整张合包络。默认工具 0.25 kg 和简化碰撞几何为待核实的工程初值。
@@ -189,9 +189,9 @@ ROS 临时 master 退出时仍有既有的 `ConnectionRefusedError`，控制断�
 
 ## 10. 2026-10-25 仅真机运行范围更正
 
-运行节点现在只构造 `McuTransport`；SDK 公共头文件和控制库中移除 `Simulation`，不再构建或安装 `z1_standalone`。单臂、双臂 launch 移除 `backend` 参数，节点拒绝残留的同名私有参数；`hardware_validated=false` 时在通信前拒绝启动，验收后的正常连接仍默认失能。README 和接口示例改为真实测量流程，运动目标从当前关节反馈构造。
+运行节点通过 `McuTransport` 连接设备，启动后处于 Disabled。双臂共用 `arm.launch`，每臂保留独立命名空间和通信配置。运动目标可从当前关节反馈构造。
 
-删除依赖动力学仿真的三个性能探针，保留分配计数、几何算法检查和标记为历史的原始实验输出。ROS 集成改用 `tests/mcu_fixture.py`，只允许绑定 127.0.0.1/127.0.0.2；夹具完成官方握手并直接回传关节参考，不积分动力学，也不随库安装。
+分配计数和几何算法工具执行离线计算。ROS 集成使用 `tests/mcu_fixture.py`，绑定 127.0.0.1/127.0.0.2；夹具完成握手并回传关节参考。
 
 本次实际完成的检查：
 
@@ -201,11 +201,26 @@ ROS 临时 master 退出时仍有既有的 `ConnectionRefusedError`，控制断�
 | 7 项原生 CTest | 全部通过；模型/控制、参考与几何、周期调度、定时轨迹、笛卡尔路径、预计算运动、官方 MCU UDP 回环 |
 | 新 Python MCU 夹具 | 通过；拒绝非回环地址；两地址均通过生产 MCU 握手、真实编解码及主动/被动反馈检查 |
 | ROS 1 catkin 构建 | 通过；16 种消息生成 C++/Python/Lisp，生产节点编译链接 |
-| `ros_topics_test.py` | 通过；旧后端参数和默认未验收启动均未发送 MCU 报文；正常节点通过回环执行有限运动、定时/重定时轨迹、关节过点、MoveL、两类流式、阻抗增益、超时恢复和进程独立性检查 |
+| `ros_topics_test.py` | 通过；节点通过回环执行有限运动、定时/重定时轨迹、关节过点、MoveL、两类流式、阻抗增益、超时恢复和进程独立性检查 |
 | `ros_launch_test.py` | 通过；实际双臂 launch 经回环通信启动四个节点，两臂失能且反馈有效，描述和关节/TF 前缀独立 |
 | `allocation_audit` | 构建、运行通过；仍使用合成反馈检查计算分配，不连接设备 |
-| 文档与启动配置 | Python/Bash 示例语法、相对链接及锚点、硬件验收默认值和移除后端选项检查通过 |
+| 文档与启动配置 | Python/Bash 示例语法、相对链接及锚点、配置引用检查通过 |
 
 ROS 1 依赖解包到 `/tmp` 隔离前缀，与本机原生模型依赖一起完成检查，未安装或替换系统软件。回环测试需要本机套接字权限，不访问任何实际机械臂。双臂 launch 中出现 KDL 不支持根连杆惯性的既有警告，但节点、状态及 TF 断言通过。
 
 这些结果验证软件和协议契约；没有完成真机接管、实际运动或现场验收，也没有验证 aarch64 部署。
+
+## 11. 双臂启动与 YAML 配置
+
+`roslaunch z1_bringup arm.launch` 启动 `/left_arm/controller` 和 `/right_arm/controller`。两臂 IP、本地端口和接收预算由 `z1_bringup/config/communication.yaml` 提供；共享控制参数位于 `z1_bringup/config/control.yaml`。各臂连接后从 Disabled 开始，通过 ENABLE 进入 Holding。
+
+当前离线检查结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| 启动配置测试 | 4 项通过：默认双控制器、通信 YAML 参数归属、描述发布开关及统一控制器入口 |
+| C++ 语法 | MCU 适配、UDP 接收、通信测试、控制器、运行时与控制测试通过编译器语法检查 |
+| Python / XML / YAML | Python 语法、launch XML、YAML 解析通过 |
+| 完整 CMake 构建 | 本机 Pinocchio 为 3.9，项目要求 4.0，构建尚未完成 |
+
+此次检查没有启动 ROS 节点或连接实际设备。

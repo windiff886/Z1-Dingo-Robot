@@ -28,16 +28,8 @@ Model::Model(const ModelConfig &c) : impl_(new Impl) {
   p.tool = p.model.getFrameId(c.tool_frame);
   p.data.reset(new pinocchio::Data(p.model));
   pinocchio::urdf::buildGeom(p.model, c.urdf, pinocchio::COLLISION, p.geometry);
-  double translations = 0;
-  for (auto &t : p.model.jointPlacements)
-    translations += t.translation().norm();
-  for (auto &g : p.geometry.geometryObjects) {
+  for (auto &g : p.geometry.geometryObjects)
     g.geometry->computeLocalAABB();
-    p.radius_bound =
-        std::max(p.radius_bound,
-                 translations + g.placement.translation().norm() +
-                     g.geometry->aabb_center.norm() + g.geometry->aabb_radius);
-  }
   std::set<std::string> covered;
   for (auto &g : p.geometry.geometryObjects)
     covered.insert(p.model.frames[g.parentFrame].name);
@@ -158,7 +150,6 @@ Vec Model::lower() const { return impl_->model.lowerPositionLimit; }
 Vec Model::upper() const { return impl_->model.upperPositionLimit; }
 Vec Model::effort() const { return impl_->model.effortLimit; }
 Vec Model::velocityLimit() const { return impl_->model.velocityLimit; }
-double Model::radiusBound() const { return impl_->radius_bound; }
 std::string Model::revision() const { return impl_->revision; }
 bool Model::withinLimits(const Vec &q, double m) const {
   return q.allFinite() && (q.array() >= lower().array() + m - 1e-10).all() &&

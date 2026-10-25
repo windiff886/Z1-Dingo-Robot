@@ -37,7 +37,6 @@ struct Model::Impl {
   Vec geometry_q{Vec::Zero()};
   bool geometry_cached{};
   size_t nearest_pair{};
-  double radius_bound{};
   std::string revision;
   Pose toolKinematics(const Vec &q, Jacobian &jacobian);
 };

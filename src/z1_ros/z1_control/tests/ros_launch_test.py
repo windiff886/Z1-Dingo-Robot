@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Verify dual_arm.launch against loopback-only MCU protocol fixtures.
+"""Verify arm.launch against loopback-only MCU protocol fixtures.
 
 Run after sourcing a ROS 1 workspace containing the new Z1 packages:
-  python3 ros_launch_test.py /path/to/z1_bringup/launch/dual_arm.launch
+  python3 ros_launch_test.py /path/to/z1_bringup/launch/arm.launch
 Requires ROS 1 robot_state_publisher, xacro, rospy, roslaunch and tf2_msgs.
 The production UDP driver is used; no physical robot or dynamics simulator.
 """
@@ -10,7 +10,9 @@ import os
 from pathlib import Path
 import socket
 import sys
+import tempfile
 import time
+import yaml
 from mcu_fixture import McuFixture, unused_local_port
 
 
@@ -33,6 +35,7 @@ def main():
     master.start()
     launcher = None
     firmware = []
+    configuration = tempfile.TemporaryDirectory(prefix='z1-launch-test-')
     try:
         rospy.init_node('z1_launch_smoke', disable_signals=True)
         states, transforms = {}, set()
@@ -53,11 +56,17 @@ def main():
         left_port, right_port = unused_local_port(), unused_local_port()
         while right_port == left_port:
             right_port = unused_local_port()
+        communication = yaml.safe_load(
+            (Path(launch_file).parent.parent / 'config/communication.yaml').read_text())
+        for side, address, local_port in (('left', '127.0.0.1', left_port),
+                                           ('right', '127.0.0.2', right_port)):
+            communication[f'{side}_arm']['controller'].update(
+                mcu_ip=address, local_port=local_port)
+        config_file = Path(configuration.name) / 'communication.yaml'
+        config_file.write_text(yaml.safe_dump(communication))
         run_id = roslaunch.rlutil.get_or_generate_uuid(None, False)
         launcher = roslaunch.parent.ROSLaunchParent(
-            run_id, [(launch_file, ['hardware_validated:=true',
-                                   'left_ip:=127.0.0.1', 'right_ip:=127.0.0.2',
-                                   f'left_port:={left_port}', f'right_port:={right_port}'])])
+            run_id, [(launch_file, [f'config:={config_file}'])])
         launcher.start()
         deadline = time.monotonic() + 12
         required = {(f'{side}_link00', f'{side}_link01')
@@ -85,6 +94,7 @@ def main():
             peer.close()
         rospy.signal_shutdown('test complete')
         master.stop()
+        configuration.cleanup()
 
 
 if __name__ == '__main__':

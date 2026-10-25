@@ -4,7 +4,7 @@
 
 - 主臂顺序固定 `joint1..joint6`；角度 rad，速度 rad/s，主臂力矩 Nm，位置 m。
 - TCP 位姿 quaternion `(x,y,z,w)` 需单位长度。frame_id 必须是该臂的 `<prefix>link00`，例如 `left_link00`；不隐式查询 TF 转换。
-- 默认 TCP 为 `tool`，相对 `link06` 固定平移 `(0.051,0,0)` m、无旋转，不随夹爪开合改变。[整机 RViz 测试发送器](unidingo_rviz_test/README.md) 在上层做 TF 转换，控制器本身的 frame 契约保持不变。
+- 默认 TCP 为 `tool`，相对 `link06` 固定平移 `(0.051,0,0)` m、无旋转，不随夹爪开合改变。
 - `joint_states` 的 name 带前缀；夹爪存在时追加 `<prefix>gripper_motor`，这是独立电机反馈，不声称对应描述模型的某个夹爪连杆角度。
 - 命令 header.stamp：有限目标/控制可为零（按接收处理），流式必须非零；默认允许过去 200 ms、未来 20 ms。有效流式帧的 ROS 时龄会扣减单调时钟有效期，延迟帧不会获得完整的新有效期；无效帧不续期。
 - 内核超时使用单调时钟；ROS 时间跳变不重置控制期限。ROS header 是发布时刻，实际有效接收序号和接收时龄位于 status。没有固件采样时刻。
@@ -62,22 +62,22 @@
 ## 4. 示例
 
 ```bash
-# 完成真机现场验收后启动；默认 namespace=arm, prefix=arm_
-roslaunch z1_bringup arm.launch hardware_validated:=true
+# 启动双臂，以下命令操作左臂
+roslaunch z1_bringup arm.launch
 
 # 反馈有效、现场姿态静止且间距足够时使能
-rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 1, operation: 0}'
+rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 1, operation: 0}'
 
-# 等待 Holding 后，从当前反馈构造有限目标；示例见 README 第 8 节。
+# 等待 Holding 后，从 joint_states 或 tcp_pose 反馈构造对应的有限目标。
 # 不假定真机初始姿态；关节2/3需要满足其非对称限位。
 
 # 流式模式，先读取 status.session_id，之后发布带当前 stamp 和递增 sequence 的目标
-rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 3, operation: 4}'
-rostopic echo /arm/status
+rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 3, operation: 4}'
+rostopic echo /left_arm/status
 
 # 停止、恢复（恢复后必须用新的 session_id）
-rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 4, operation: 2}'
-rostopic pub -1 /arm/control z1_msgs/ControlCommand '{command_id: 5, operation: 3}'
+rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 4, operation: 2}'
+rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 5, operation: 3}'
 ```
 
 流式发布者应在有效期内持续送帧，如 20–100 Hz；原生控制周期默认 500 Hz，状态发布默认 100 Hz。消息频率不等于新 MCU 测量频率。不要用固定 token 的 `rostopic -r` 当作恢复后的控制器。
@@ -126,7 +126,7 @@ ROS 定时轨迹示例（当前为 Holding，`q_target` 按 joint1..joint6 排�
 
 ```python
 from z1_msgs.msg import JointTrajectory, TrajectoryPoint
-pub = rospy.Publisher('/arm/joint_trajectory', JointTrajectory, queue_size=1)
+pub = rospy.Publisher('/left_arm/joint_trajectory', JointTrajectory, queue_size=1)
 m = JointTrajectory()
 m.command_id = 20
 m.header.stamp = rospy.Time.now()
@@ -155,7 +155,7 @@ ROS 示例片段（已进入 JointStream 并读取当前 `session`）：
 
 ```python
 from z1_msgs.msg import JointReference
-pub = rospy.Publisher('/arm/joint_reference', JointReference, queue_size=32)
+pub = rospy.Publisher('/left_arm/joint_reference', JointReference, queue_size=32)
 m = JointReference()
 m.header.stamp = rospy.Time.now()
 m.target_time = m.header.stamp + rospy.Duration(0.04)
@@ -196,6 +196,6 @@ fixed_boxes:
     rpy: [0.00, 0.00, 0.00]
 ```
 
-数值仅说明格式，需替换为实测安装几何。排除碰撞对基于连杆名，工具/模型变更后须审查规则。每对几何的运动范围由模型自动推导，共同祖先的刚体运动不会膨胀自碰撞距离；`geometry_radius_bound` 保留为旧模型配置的启动检查，不再统一乘以关节误差。修改质量/质心/惯性通过控制 URDF 完成；显示 xacro 应同步。几何变化不要求修改 Coal 距离算法。
+数值仅说明格式，需替换为实测安装几何。排除碰撞对基于连杆名，工具/模型变更后须审查规则。每对几何的运动范围由模型自动推导，共同祖先的刚体运动不会膨胀自碰撞距离。修改质量/质心/惯性通过控制 URDF 完成；显示 xacro 应同步。几何变化不要求修改 Coal 距离算法。
 
 `status.model_revision` 是控制 URDF 内容、TCP 名称、重力、碰撞排除对和固定结构配置的 SHA-256。它不包含外部网格文件内容或控制器增益；当前默认碰撞几何均为 URDF 内的基本形状。

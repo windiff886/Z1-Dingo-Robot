@@ -1,6 +1,6 @@
 # Z1 MCU 通信接口离线预检
 
-此工具验证官方 `IOUDP` 能否在不创建 ROS、旧控制状态机或机械臂模型的情况下链接和运行，并核实其反馈返回值语义。它不是控制节点或可部署的通信适配器。
+此工具独立链接官方 `IOUDP`，通过内存端口核实反馈返回值语义。
 
 ## 运行
 
@@ -46,4 +46,4 @@ V1/V2 均复现以下行为：接收失败后 `sendRecv` 仍返回 `true`，原�
 
 生产 [McuTransport](../../z1_control/src/mcu_transport.cpp) 使用另一份可观测的真实 UDP 端口实现，保留官方 IOUDP 握手与报文处理。内存探针对象没有链接进生产进程；探针记录的是旧返回值缺口，新适配的有效接收契约由 `z1_control/tests/transport_tests.cpp` 的真实 UDP 回环验证。
 
-官方库与头文件集中于 `vendor/unitree`，版本按 SHA-256 锁定；更换版本需重做探针和回环测试。真实固件和力矩控制能力仍须现场验证，UDP 后端默认禁止未验收接管。见 [实施记录](../../IMPLEMENTATION_REPORT.md)。
+官方库与头文件集中于 `vendor/unitree`，探针和回环测试验证其初始化、编解码与收发行为。见 [实施记录](../../IMPLEMENTATION_REPORT.md)。

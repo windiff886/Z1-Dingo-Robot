@@ -1,65 +1,40 @@
-# Z1-Dingo-Robot
+# Z1 机械臂 SDK
 
-Dingo 全向移动底盘、双 Unitree Z1 机械臂、Pan-Tilt 云台及 Intel D455 相机的 ROS 集成工作区。各组件通过各自的 ROS Topic 接口接收命令和发布反馈。
+双 Unitree Z1 机械臂的控制 SDK，提供独立 C++ 控制内核、ROS 1 Topic 接口和 MCU UDP 通信。支持关节目标、末端位姿目标、定时轨迹、连续过点、末端直线路径、流式跟踪、笛卡尔阻抗及夹爪控制。
 
-当前按实际设备分别启动组件。Z1 运行入口仅连接真机 MCU；现场确认固件、控制方式、模型和参数后才能接管，启动成功后仍需显式使能。机械臂从启动到执行的完整流程见 [Z1 README](src/z1_ros/README.md)。
+## 启动
 
-## 组件启动
-
-先构建并 source ROS 1 工作区：
+构建并加载 ROS 1 工作区后，启动双臂：
 
 ```bash
 source devel/setup.bash
+roslaunch z1_bringup arm.launch
 ```
 
-机械臂完成现场验收后启动：
+左臂命名空间为 `/left_arm`，右臂为 `/right_arm`。两臂各自连接 MCU，启动后处于 Disabled；通过各臂的 `control` Topic 发送 ENABLE，进入 Holding 后接收运动目标。
 
-```bash
-# 双臂：/left_arm、/right_arm
-roslaunch z1_bringup dual_arm.launch hardware_validated:=true
+## 配置
 
-# 或只启动单臂，IP 和本地端口按实际设备填写
-roslaunch z1_bringup arm.launch hardware_validated:=true \
-  mcu_ip:=192.168.123.110 local_port:=8881
-```
-
-`hardware_validated` 默认 false，未确认时在连接前拒绝启动。机械臂没有后端选择参数。双臂默认 IP 为 `192.168.123.110/111`，本地端口为 `8881/8882`，可逐臂覆盖。
-
-其余组件分别启动：
-
-```bash
-# Dingo 底盘
-roslaunch dingo_control dingo.launch
-
-# Pan-Tilt 云台
-roslaunch pan_tilt_bringup panTilt_bringup.launch
-
-# Intel D455 相机
-roslaunch d455_camera d455_camera_nodelet.launch
-```
-
-设备连接与各自的控制方法见 [Dingo](src/dingo/README.md)、[Pan-Tilt](src/pan_tilt_ros/README.md)和 [D455](src/d455_camera/README.md)。各组件仍按独立接口运行。
-
-## RViz 末端目标测试
-
-[unidingo_rviz_test](src/z1_ros/unidingo_rviz_test/README.md) 提供包含双臂、底盘、云台和相机的完整模型，通过拖动 TCP 手柄、松开鼠标发送末端目标。目标从 `base_link` 经 TF 转换到对应的 `left_link00` / `right_link00`，进入原有机械臂控制链路。该入口不自动使能，也不提供双臂互碰或整机绕障规划。
-
-详细坐标系分析、ROS 1 部署机启动步骤及离线验证边界见该包说明。本次未在本机启动 ROS 1 或连接硬件。
-
-## 代码与文档
-
-| 路径 | 内容 |
+| 文件 | 内容 |
 | --- | --- |
-| `src/z1_ros/` | Z1 真机控制、消息、启动及模型 |
-| `src/dingo/` | Dingo 底盘驱动与控制 |
-| `src/pan_tilt_ros/` | 云台驱动、消息及启动 |
-| `src/d455_camera/` | D455 相机 nodelet 驱动 |
-| `src/unidingo_description/` | 组合机器人描述与网格 |
-| `src/z1_ros/unidingo_rviz_test/` | 整机 RViz 显示、TCP 拖动目标发送及离线验证 |
+| [communication.yaml](src/z1_ros/z1_bringup/config/communication.yaml) | 各臂 IP、本地 UDP 端口、接收预算 |
+| [control.yaml](src/z1_ros/z1_bringup/config/control.yaml) | 控制周期、速度/加速度/jerk、力矩、增益、容差及碰撞检查参数 |
+| [z1_control.urdf](src/z1_ros/z1_description/urdf/z1_control.urdf) | 六轴运动学、质量/惯性、工具坐标系及碰撞几何 |
 
-- [机械臂运行逻辑](src/z1_ros/README.md)
-- [机械臂接口契约](src/z1_ros/INTERFACES.md)
-- [机械臂需求基线](src/z1_ros/REFACTOR_REQUIREMENTS.md)
-- [机械臂采用独立控制内核和 ROS 1 接口](docs/adr/0001-arm-core-and-ros1-interface.md)
-- [保留官方 MCU 通信适配](docs/adr/0002-retain-z1-mcu-transport.md)
-- [Z1 运行入口仅面向真机](docs/adr/0003-z1-hardware-only-runtime.md)
+默认左臂 IP 为 `192.168.123.110`、本地端口 `8881`；右臂 IP 为 `192.168.123.111`、本地端口 `8882`。修改通信配置后仍使用同一启动命令。
+
+## 接口
+
+每臂通过自身命名空间下的 Topic 接收命令、发布反馈。关节角单位为 rad，位置为 m；末端位姿分别相对 `left_link00` 或 `right_link00`。默认 TCP 为 `link06` 沿 X 正方向平移 0.051 m 的固定工具坐标系。
+
+| Topic | 用途 |
+| --- | --- |
+| `control` | 使能、停止、恢复、失能及模式选择 |
+| `joint_goal` / `pose_goal` | 有限关节目标 / 末端位姿目标 |
+| `joint_trajectory` / `joint_waypoints` / `linear_path` | 定时轨迹、连续过点、末端直线路径 |
+| `joint_stream` / `pose_stream` | 连续更新关节或末端目标 |
+| `joint_reference` / `pose_reference` | 带时间和可选导数的连续参考 |
+| `gripper_goal` / `impedance_gains` | 夹爪位置目标 / 笛卡尔阻抗增益 |
+| `joint_states` / `tcp_pose` / `status` / `result` | 关节、末端、控制状态及命令结果 |
+
+完整控制流程、消息字段与示例见 [SDK 使用说明](src/z1_ros/README.md)和[接口契约](src/z1_ros/INTERFACES.md)。

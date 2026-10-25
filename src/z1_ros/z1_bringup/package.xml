@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>z1_bringup</name><version>1.0.0</version><description>Independent single and dual arm launch.</description>
+  <name>z1_bringup</name><version>1.0.0</version><description>Dual Z1 arm launch with YAML communication configuration.</description>
   <maintainer email="maintainer@example.com">Z1-Dingo contributors</maintainer><license>BSD-3-Clause</license>
   <buildtool_depend>catkin</buildtool_depend><exec_depend>z1_control</exec_depend><exec_depend>z1_description</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend><exec_depend>xacro</exec_depend>
+  <test_depend>python3-yaml</test_depend>
 </package>

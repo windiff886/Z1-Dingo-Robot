@@ -1,0 +1,13 @@
+# Private parameters of the two controller nodes.
+# MCU destination UDP port is 8880 in the vendor transport.
+left_arm:
+  controller:
+    mcu_ip: 192.168.123.110
+    local_port: 8881
+    receive_budget_us: 1000
+
+right_arm:
+  controller:
+    mcu_ip: 192.168.123.111
+    local_port: 8882
+    receive_budget_us: 1000

@@ -21,7 +21,6 @@ public:
   Vec upper() const;
   Vec effort() const;
   Vec velocityLimit() const;
-  double radiusBound() const;
   std::string revision() const;
   bool withinLimits(const Vec &, double margin = 0) const;
   Pose fk(const Vec &);

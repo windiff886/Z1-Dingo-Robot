@@ -115,18 +115,12 @@ public:
   Node() {
     planning_nh_.setCallbackQueue(&planning_queue_);
     std::string urdf, ip;
-    int port = 8881, budget = 1000;
+    int port{}, budget{};
     z1::RuntimeOptions runtime_options;
     params_.param("control_cpu", runtime_options.cpu_affinity, -1);
     params_.param("realtime_priority", runtime_options.realtime_priority, 0);
-    bool validated = false;
     if (!params_.getParam("model_file", urdf) || urdf.empty())
       throw std::runtime_error("model_file is required");
-    // Reject stale backend parameters rather than silently connecting hardware
-    // for an invocation that previously selected a simulator.
-    if (params_.hasParam("backend"))
-      throw std::runtime_error(
-          "backend selection has been removed; remove ~backend (MCU hardware only)");
     params_.param<std::string>("joint_prefix", prefix_, "");
     base_frame_ = prefix_ + "link00";
     params_.param("command_max_age", command_age_, 0.2);
@@ -147,7 +141,6 @@ public:
            &config_.impedance_gain_time_constant},
           {"collision_margin", &config_.collision_margin},
           {"collision_warning", &config_.collision_warning},
-          {"geometry_radius_bound", &config_.geometry_radius_bound},
           {"validation_budget", &config_.validation_budget},
           {"lookahead_budget", &config_.lookahead_budget},
           {"position_tolerance", &config_.position_tolerance},
@@ -214,16 +207,17 @@ public:
         model.fixed_boxes.push_back(box);
       }
     }
-    params_.param<std::string>("mcu_ip", ip, "192.168.123.110");
-    params_.param("local_port", port, 8881);
-    params_.param("receive_budget_us", budget, 1000);
-    params_.param("hardware_validated", validated, false);
+    if (!params_.getParam("mcu_ip", ip) ||
+        !params_.getParam("local_port", port) ||
+        !params_.getParam("receive_budget_us", budget))
+      throw std::runtime_error(
+          "mcu_ip, local_port and receive_budget_us are required in the communication YAML");
     if (port <= 0 || port > 65535 || budget <= 0 ||
         budget * 1e-6 + config_.lookahead_budget >= config_.period)
       throw std::runtime_error(
           "invalid port or receive/check budgets leave no control time");
     z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
-                      static_cast<unsigned>(budget), validated};
+                      static_cast<unsigned>(budget)};
     runtime_ = std::make_unique<z1::Runtime>(
         model, config_,
         [mcu] { return std::make_unique<z1::McuTransport>(mcu); },

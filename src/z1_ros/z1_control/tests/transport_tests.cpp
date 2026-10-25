@@ -107,7 +107,6 @@ int main() {
     McuConfig cfg;
     cfg.ip = "127.0.0.1";
     cfg.local_port = 0;
-    cfg.hardware_validated = true;
     // This codec/loopback test uses a generous receive window, independently
     // of the production 2 ms control period.
     cfg.period = 0.01;
@@ -172,14 +171,6 @@ int main() {
       }
       require(threw, "duplicate local port accepted");
     }
-    cfg.hardware_validated = false;
-    bool gated = false;
-    try {
-      McuTransport driver(cfg);
-    } catch (const std::exception &) {
-      gated = true;
-    }
-    require(gated, "uncommissioned hardware allowed");
     std::cout << "PASS: observed official MCU adapter over loopback\n";
     return 0;
   } catch (const std::exception &e) {
