@@ -71,8 +71,4 @@ roslaunch z1_bringup arm.launch
 
 因此，机械臂运行的主要逻辑是：上层目标经运动生成转为关节参考，控制器结合 MCU 反馈和动力学模型计算力矩，再发送到各臂执行；反馈同时用于更新 TF、控制状态和到达结果。
 
-## 依赖与源码
 
-`z1_bringup` 组织双臂启动与配置，`z1_control` 提供控制内核、ROS 1 接口和 MCU 通信，`z1_msgs` 定义控制消息，`z1_description` 提供模型与网格。官方通信库和必要头文件位于 [vendor/unitree](vendor/unitree)，许可证见 [LICENSE](vendor/unitree/LICENSE)。
-
-原生依赖包括 C++17、CMake、Eigen、Pinocchio 4.x、Coal、Ruckig、Boost 和 OpenSSL；ROS 侧依赖 roscpp、标准消息、自定义消息生成、xacro 和 robot_state_publisher。具体依赖和版本要求以各包的 `package.xml` 和 `CMakeLists.txt` 为准。

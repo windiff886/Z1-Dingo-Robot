@@ -30,20 +30,8 @@ ctest --test-dir /tmp/z1-transport-preflight-build --output-on-failure -V
 
 错误注入发生在 UDP 接口返回状态层，不执行真实 UDP 收发或 CRC 校验；模拟握手只用于测试，不是新增的生产协议实现。
 
-## 当前结果
+## 与生产适配的关系
 
-2026-10-11，在 Linux x86_64、GCC 11.4、CMake 3.22 环境编译和 CTest 通过。
+生产 [McuTransport](../../z1_control/src/mcu_transport.cpp) 使用可观测的真实 UDP 端口实现，保留官方 IOUDP 握手与报文处理，通过有效接收事件和主机接收时间判断反馈新鲜度。内存探针对象不链接进生产进程；生产适配的收发行为可通过 [transport_tests.cpp](../../z1_control/tests/transport_tests.cpp) 的真实 UDP 回环测试检查。
 
-被测库：`vendor/unitree/lib/libUnitreeArm_x86_64.so`。
-
-SHA-256：`47861f6155c0ade03de6c19a97d3f66923921b3134a59f7b84692e475c240348`。
-
-V1/V2 均复现以下行为：接收失败后 `sendRecv` 仍返回 `true`，原始 q/dq/tau 保留旧值；发送错误也未通过此返回值报告。新报文可能具有完全相同的 q/dq/tau，因此比较数组变化同样不能判定是否收到新数据。
-
-此探针断言的是当前官方库的实际契约，不是理想契约。更换库后若结果变化，需重新审查，而不能把“失败不再返回 true”直接视为新库缺陷。aarch64 配置入口存在，但本次未在该架构运行。
-
-## 与新适配的关系
-
-生产 [McuTransport](../../z1_control/src/mcu_transport.cpp) 使用另一份可观测的真实 UDP 端口实现，保留官方 IOUDP 握手与报文处理。内存探针对象没有链接进生产进程；探针记录的是旧返回值缺口，新适配的有效接收契约由 `z1_control/tests/transport_tests.cpp` 的真实 UDP 回环验证。
-
-官方库与头文件集中于 `vendor/unitree`，探针和回环测试验证其初始化、编解码与收发行为。见 [实施记录](../../IMPLEMENTATION_REPORT.md)。
+官方库与头文件集中于 [vendor/unitree](../../vendor/unitree)。替换官方库或目标架构后，需要重新核对探针假设及 ABI、初始化、编解码与收发行为。

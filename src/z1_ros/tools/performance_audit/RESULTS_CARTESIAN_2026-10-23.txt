@@ -1,2 +1,0 @@
-MoveL line preparation_ms=0.175034 duration=1.30534 contour_m=9.86572e-07 orientation_rad=1.82899e-13 stopped_duration=2.89167 blended_duration=3.28242 corner_speed_mps=0.0086176 rotation_corner_speed_radps=0.0586086
-MoveL line/coupled rotation, stopped/blended corners, limits and unreachable tests passed

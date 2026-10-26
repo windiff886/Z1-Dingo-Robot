@@ -1,6 +1,0 @@
-host_kernel=6.8.0-138-generic,architecture=x86_64
-host_cpu= 13th Gen Intel(R) Core(TM) i9-13900HX
-backend=simulation,seconds_per_rate=10,requested_cpu=-1,requested_fifo_priority=0
-target_hz=250.000,actual_hz=249.998,period_p50_us=3999.880,period_p99_us=4189.768,abs_jitter_p99_us=212.307,max_period_us=7058.367,cycles_over_1.5T=1,missed_slots=0,max_exchange_us_since_start=274.073,realtime_applied=0,realtime_error=0,affinity_applied=0,affinity_error=0,accepted=500,rejected=0,mode=4,reason=waiting for new session target
-target_hz=500.000,actual_hz=499.994,period_p50_us=1999.750,period_p99_us=2185.498,abs_jitter_p99_us=198.672,max_period_us=2249.818,cycles_over_1.5T=0,missed_slots=0,max_exchange_us_since_start=146.034,realtime_applied=0,realtime_error=0,affinity_applied=0,affinity_error=0,accepted=500,rejected=0,mode=4,reason=waiting for new session target
-target_hz=1000.000,actual_hz=1000.000,period_p50_us=999.930,period_p99_us=1074.586,abs_jitter_p99_us=112.814,max_period_us=1241.197,cycles_over_1.5T=0,missed_slots=0,max_exchange_us_since_start=137.341,realtime_applied=0,realtime_error=0,affinity_applied=0,affinity_error=0,accepted=500,rejected=0,mode=4,reason=waiting for new session target

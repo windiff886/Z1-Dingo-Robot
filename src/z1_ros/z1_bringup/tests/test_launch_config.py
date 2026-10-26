@@ -64,10 +64,19 @@ class LaunchConfiguration(unittest.TestCase):
     def test_rviz_uses_same_controller_entry(self):
         path = BRINGUP.parent / 'unidingo_rviz_test/launch/rviz_tcp_test.launch'
         launch = ET.parse(path).getroot()
+        self.assertFalse(launch.findall('arg'))
         include = launch.find('include')
         self.assertEqual(include.get('file'), '$(find z1_bringup)/launch/arm.launch')
+        self.assertIsNone(include.get('if'))
+        self.assertIsNone(include.get('unless'))
         self.assertEqual(include.find("arg[@name='publish_description']").get('value'), 'false')
-        self.assertEqual(include.find("arg[@name='config']").get('value'), '$(arg arm_config)')
+        self.assertIsNone(include.find("arg[@name='config']"))
+        sender = launch.find("node[@name='rviz_tcp_test']")
+        self.assertEqual(sender.find('rosparam').get('file'),
+                         '$(find unidingo_rviz_test)/config/rviz_tcp_test.yaml')
+        rviz = launch.find("node[@name='rviz']")
+        self.assertIsNone(rviz.get('if'))
+        self.assertIsNone(rviz.get('unless'))
 
 
 if __name__ == '__main__':

@@ -12,6 +12,12 @@ from types import ModuleType, SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
+import yaml
+
+
+CONFIG = yaml.safe_load((Path(__file__).resolve().parents[1]
+                         / 'config/rviz_tcp_test.yaml').read_text())
+
 
 class Time:
     def __init__(self, seconds=0):
@@ -133,8 +139,7 @@ def load_sender():
         return result
 
     module('rospy', Publisher=Publisher, Subscriber=Mock(), Timer=Mock(),
-           Time=Time, Duration=Time, get_param=lambda name, default: default,
-           resolve_name=lambda name: name.replace('~', '/rviz_tcp_test/'),
+           Time=Time, Duration=Time, get_param=lambda name: CONFIG[name[1:]],
            loginfo=Mock(), logwarn=Mock())
     module('tf2_ros', Buffer=Mock, TransformListener=Mock, TransformException=LookupError)
     module('tf2_geometry_msgs')
@@ -167,6 +172,9 @@ SENDER = load_sender()
 
 class SenderDecisions(unittest.TestCase):
     def setUp(self):
+        self.create_node()
+
+    def create_node(self):
         self.node = SENDER.TcpTest()
         self.arm = self.node.arms['left']
         self.refresh()
@@ -201,7 +209,7 @@ class SenderDecisions(unittest.TestCase):
             self.assertEqual(sent.header.frame_id, side + '_link00')
             self.assertFalse(sent.header.stamp.is_zero())
             self.assertEqual(sent.pose, transformed)
-            self.assertEqual(sent.speed_scale, 0.15)
+            self.assertEqual(sent.speed_scale, CONFIG['speed_scale'])
             args = self.node.buffer.transform.call_args.args
             self.assertEqual(args[1], self.arm.base)
             self.assertTrue(args[0].header.stamp.is_zero())
@@ -263,12 +271,20 @@ class SenderDecisions(unittest.TestCase):
         self.assertEqual(len(self.arm.goal_pub.messages), 1)
 
     def test_manual_send_and_bad_feedback(self):
-        self.node.send_on_release = False
+        configured = dict(CONFIG, send_on_release=False, speed_scale=0.25,
+                          telemetry_timeout=0.6)
+        with patch.object(SENDER.rospy, 'get_param',
+                          side_effect=lambda name: configured[name[1:]]):
+            self.create_node()
+        # Feedback older than the default timeout remains valid with this
+        # configuration; releasing the marker still requires manual send.
+        self.arm.tcp_at = time.monotonic() - 0.4
         self.node.feedback(self.arm, self.feedback(Feedback.POSE_UPDATE))
         self.node.feedback(self.arm, self.feedback(Feedback.MOUSE_UP))
         self.assertFalse(self.arm.goal_pub.messages)
         self.node.send(self.arm)
         self.assertEqual(len(self.arm.goal_pub.messages), 1)
+        self.assertEqual(self.arm.goal_pub.messages[0].speed_scale, 0.25)
         bad = self.feedback(Feedback.POSE_UPDATE)
         bad.header.frame_id = 'map'
         self.node.feedback(self.arm, bad)
@@ -313,11 +329,13 @@ class SenderDecisions(unittest.TestCase):
         self.arm.status.feedback_valid = False
         self.node.on_joints(self.arm, msg)
         self.assertEqual(len(self.node.joints.messages), 1)
-        self.node.on_aux(JointState(name=['left_joint1', 'pan_tilt_yaw_joint'], position=[99, 0.2]))
         self.node.tick(None)
-        auxiliary = self.node.joints.messages[-1]
-        self.assertNotIn('left_joint1', auxiliary.name)
-        self.assertEqual(auxiliary.position[auxiliary.name.index('pan_tilt_yaw_joint')], 0.2)
+        static_display = self.node.joints.messages[-1]
+        self.assertNotIn('left_joint1', static_display.name)
+        self.assertNotIn('right_joint1', static_display.name)
+        self.assertIn('pan_tilt_yaw_joint', static_display.name)
+        self.assertIn('front_left_wheel', static_display.name)
+        self.assertEqual(static_display.position, [0.0] * len(static_display.name))
 
 
 if __name__ == '__main__':

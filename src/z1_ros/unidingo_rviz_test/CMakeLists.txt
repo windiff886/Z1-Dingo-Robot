@@ -4,5 +4,5 @@ find_package(catkin REQUIRED)
 catkin_package()
 catkin_install_python(PROGRAMS scripts/interactive_tcp_test.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-install(DIRECTORY launch rviz DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+install(DIRECTORY launch config rviz DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 install(FILES README.md DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

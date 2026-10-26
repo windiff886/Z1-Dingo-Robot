@@ -1,15 +1,5 @@
 <launch>
-  <!-- Attach existing controllers by default; no implicit MCU connection. -->
-  <arg name="start_arms" default="false"/>
-  <arg name="arm_config" default="$(find z1_bringup)/config/communication.yaml"/>
-  <arg name="rviz" default="true"/>
-  <arg name="send_on_release" default="true"/>
-  <arg name="speed_scale" default="0.15"/>
-  <!-- Wheel/pan-tilt feedback; never remap this to the bridge output. -->
-  <arg name="aux_joint_states" default="/joint_states"/>
-
-  <include if="$(arg start_arms)" file="$(find z1_bringup)/launch/arm.launch">
-    <arg name="config" value="$(arg arm_config)"/>
+  <include file="$(find z1_bringup)/launch/arm.launch">
     <arg name="publish_description" value="false"/>
   </include>
 
@@ -18,9 +8,7 @@
     <remap from="joint_states" to="/rviz_tcp_test/joint_states"/>
   </node>
   <node pkg="unidingo_rviz_test" type="interactive_tcp_test.py" name="rviz_tcp_test" output="screen" required="true">
-    <param name="send_on_release" value="$(arg send_on_release)"/>
-    <param name="speed_scale" value="$(arg speed_scale)"/>
-    <param name="aux_joint_states" value="$(arg aux_joint_states)"/>
+    <rosparam command="load" file="$(find unidingo_rviz_test)/config/rviz_tcp_test.yaml"/>
   </node>
-  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" args="-d $(find unidingo_rviz_test)/rviz/tcp_test.rviz"/>
+  <node pkg="rviz" type="rviz" name="rviz" args="-d $(find unidingo_rviz_test)/rviz/tcp_test.rviz"/>
 </launch>

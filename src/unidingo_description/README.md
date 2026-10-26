@@ -38,7 +38,7 @@ unidingo_description/
 | `urdf/sensors.gazebo.xacro` | 独立相机描述宏，含几何、惯量、光学坐标系及 Gazebo 传感器扩展；主整机模型未引用它 |
 | `urdf/宇树机械臂+dingo.csv` | CAD 导出的质量、惯量、几何及关节参数，作为模型源数据保留 |
 
-URDF/Xacro 中已有的 transmission 和 Gazebo 标签属于模型扩展，本次保留。
+URDF/Xacro 中的 transmission 和 Gazebo 标签用于模型扩展。
 
 ## 描述依赖
 

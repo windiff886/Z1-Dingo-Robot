@@ -23,6 +23,14 @@ MODE_NAMES = ('Disabled', 'Holding', 'JointGoal', 'PoseGoal', 'JointStream',
               'PoseStream', 'Impedance', 'Stopping', 'AwaitResume', 'Fault',
               'JointTrajectory', 'CartesianPath')
 
+# Inactive components stay at zero for display. Arm positions use feedback only;
+# gripper motor feedback has no calibrated conversion to jointGripper.
+STATIC_DISPLAY_JOINTS = (
+    'front_left_wheel', 'front_right_wheel', 'rear_left_wheel', 'rear_right_wheel',
+    'pan_tilt_yaw_joint', 'pan_tilt_pitch_joint',
+    'left_jointGripper', 'right_jointGripper',
+)
+
 
 def valid_pose(pose):
     q = pose.orientation
@@ -49,9 +57,9 @@ class TcpTest:
     def __init__(self):
         self.lock = threading.RLock()
         self.frame = 'base_link'
-        self.send_on_release = rospy.get_param('~send_on_release', True)
-        self.speed = float(rospy.get_param('~speed_scale', 0.15))
-        self.timeout = float(rospy.get_param('~telemetry_timeout', 0.3))
+        self.send_on_release = rospy.get_param('~send_on_release')
+        self.speed = float(rospy.get_param('~speed_scale'))
+        self.timeout = float(rospy.get_param('~telemetry_timeout'))
         if not (0 < self.speed <= 1 and math.isfinite(self.timeout) and self.timeout > 0):
             raise ValueError('speed_scale must be in (0,1]; telemetry_timeout must be positive')
         self.command_id = time.time_ns()
@@ -61,12 +69,6 @@ class TcpTest:
         self.joints = rospy.Publisher('~joint_states', JointState, queue_size=10)
         self.labels = rospy.Publisher('~status_markers', MarkerArray, queue_size=1)
         self.arms = {side: Arm(side) for side in ('left', 'right')}
-        # Display placeholders only: no arm q is ever invented. Gripper motor
-        # feedback has no calibrated conversion to jointGripper in this repo.
-        self.aux = {name: 0.0 for name in (
-            'front_left_wheel', 'front_right_wheel', 'rear_left_wheel', 'rear_right_wheel',
-            'pan_tilt_yaw_joint', 'pan_tilt_pitch_joint',
-            'left_jointGripper', 'right_jointGripper')}
         self.subscriptions = []
         for side, arm in self.arms.items():
             for topic, msg_type, callback in (
@@ -75,10 +77,6 @@ class TcpTest:
                 self.subscriptions.append(rospy.Subscriber(
                     '/' + side + '_arm/' + topic, msg_type,
                     lambda msg, a=arm, cb=callback: cb(a, msg), queue_size=10))
-        aux_topic = rospy.get_param('~aux_joint_states', '/joint_states')
-        if rospy.resolve_name(aux_topic) == rospy.resolve_name('~joint_states'):
-            raise ValueError('aux_joint_states must not subscribe to the bridge output')
-        self.subscriptions.append(rospy.Subscriber(aux_topic, JointState, self.on_aux, queue_size=10))
         self.timer = rospy.Timer(rospy.Duration(0.1), self.tick)
         rospy.loginfo('TCP test: drag a TCP handle and release to send=%s; speed_scale=%.2f',
                       self.send_on_release, self.speed)
@@ -126,13 +124,6 @@ class TcpTest:
             out = JointState(header=msg.header, name=expected,
                              position=[positions[n] for n in expected])
             self.joints.publish(out)
-
-    def on_aux(self, msg):
-        with self.lock:
-            if len(msg.name) == len(msg.position):
-                for name, value in zip(msg.name, msg.position):
-                    if name in self.aux and math.isfinite(value):
-                        self.aux[name] = value
 
     def on_result(self, arm, msg):
         with self.lock:
@@ -254,7 +245,8 @@ class TcpTest:
     def tick(self, _event):
         with self.lock:
             self.joints.publish(JointState(header=Header(stamp=rospy.Time.now()),
-                                           name=list(self.aux), position=list(self.aux.values())))
+                                           name=list(STATIC_DISPLAY_JOINTS),
+                                           position=[0.0] * len(STATIC_DISPLAY_JOINTS)))
             labels = MarkerArray()
             for index, arm in enumerate(self.arms.values()):
                 if not arm.created and self.fresh(arm):
