@@ -1,7 +1,5 @@
 <launch>
-  <include file="$(find z1_bringup)/launch/arm.launch">
-    <arg name="publish_description" value="false"/>
-  </include>
+  <include file="$(find z1_bringup)/launch/controllers.launch"/>
 
   <param name="robot_description" command="$(find xacro)/xacro '$(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro' UnitreeGripper:=true PanTilt:=true"/>
   <node pkg="robot_state_publisher" type="robot_state_publisher" name="whole_robot_state_publisher">

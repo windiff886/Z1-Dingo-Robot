@@ -7,4 +7,6 @@
   <depend>roscpp</depend><depend>sensor_msgs</depend><depend>geometry_msgs</depend><depend>z1_msgs</depend>
   <depend>eigen</depend><depend>boost</depend><depend>pinocchio</depend><depend>ruckig</depend>
   <depend>libssl-dev</depend>
+  <depend>yaml-cpp</depend>
+  <test_depend>python3-yaml</test_depend>
 </package>

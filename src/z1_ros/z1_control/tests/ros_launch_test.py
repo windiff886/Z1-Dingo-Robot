@@ -12,6 +12,7 @@ import socket
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 import yaml
 from mcu_fixture import McuFixture, unused_local_port
 
@@ -63,30 +64,50 @@ def main():
             communication[f'{side}_arm']['controller'].update(
                 mcu_ip=address, local_port=local_port)
         config_file = Path(configuration.name) / 'communication.yaml'
-        config_file.write_text(yaml.safe_dump(communication))
         run_id = roslaunch.rlutil.get_or_generate_uuid(None, False)
-        launcher = roslaunch.parent.ROSLaunchParent(
-            run_id, [(launch_file, [f'config:={config_file}'])])
-        launcher.start()
-        deadline = time.monotonic() + 12
-        required = {(f'{side}_link00', f'{side}_link01')
-                    for side in ('left', 'right')}
-        while time.monotonic() < deadline:
-            if len(states) == 2 and required <= transforms:
-                break
-            launcher.spin_once()
-            time.sleep(0.02)
-        assert len(states) == 2, 'dual launch did not publish both status topics'
-        assert all(s.mode == Status.DISABLED and s.feedback_valid
-                   and len(s.model_revision) == 64 for s in states.values()), states
-        assert required <= transforms, f'missing prefixed transforms: {transforms}'
-        for side in ('left', 'right'):
-            description = rospy.get_param(f'/{side}_arm/robot_description')
-            assert f'name="{side}_joint1"' in description
-            assert f'{side}_link00' in description
-        assert all(a.split('_')[0] == b.split('_')[0] for a, b in transforms), transforms
-        assert all(peer.commands > 0 and peer.error is None for peer in firmware)
-        print('PASS: MCU-only dual launch over loopback, independent namespaces, descriptions and prefixed TF')
+        assert communication.get('publish_description') is False, 'expected standalone TF off by default'
+        for publish_description in (False, True):
+            states.clear()
+            transforms.clear()
+            communication['publish_description'] = publish_description
+            config_file.write_text(yaml.safe_dump(communication))
+            # A test-only wrapper overrides loaded parameters after the include.
+            # Production entry points keep fixed YAML paths and accept no args.
+            wrapper = ET.Element('launch')
+            ET.SubElement(wrapper, 'include', file=launch_file)
+            ET.SubElement(wrapper, 'rosparam', command='load', file=str(config_file))
+            launcher = roslaunch.parent.ROSLaunchParent(
+                run_id, [], roslaunch_strs=[ET.tostring(wrapper, encoding='unicode')])
+            launcher.start()
+            deadline = time.monotonic() + 12
+            required = {(f'{side}_link00', f'{side}_link01')
+                        for side in ('left', 'right')}
+            while time.monotonic() < deadline:
+                ready = (len(states) == 2 and all(s.feedback_valid for s in states.values()))
+                if ready and (not publish_description or required <= transforms):
+                    break
+                launcher.spin_once()
+                time.sleep(0.02)
+            assert len(states) == 2, 'dual launch did not publish both status topics'
+            assert all(s.mode == Status.DISABLED and s.feedback_valid
+                       and len(s.model_revision) == 64 for s in states.values()), states
+            if publish_description:
+                assert required <= transforms, f'missing prefixed transforms: {transforms}'
+                for side in ('left', 'right'):
+                    description = rospy.get_param(f'/{side}_arm/robot_description')
+                    assert f'name="{side}_joint1"' in description
+                    assert f'{side}_link00' in description
+                assert all(a.split('_')[0] == b.split('_')[0] for a, b in transforms), transforms
+            else:
+                # Give an accidentally started publisher time to advertise TF.
+                time.sleep(0.5)
+                assert not transforms, f'unexpected standalone TF: {transforms}'
+                assert all(not rospy.has_param(f'/{side}_arm/robot_description')
+                           for side in ('left', 'right'))
+            assert all(peer.commands > 0 and peer.error is None for peer in firmware)
+            launcher.shutdown()
+            launcher = None
+        print('PASS: loopback dual launch, YAML TF switch off/on, independent namespaces and prefixed TF')
     finally:
         if launcher is not None:
             launcher.shutdown()

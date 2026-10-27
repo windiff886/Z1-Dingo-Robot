@@ -1,3 +1,8 @@
+# Standalone arm.launch only: publish independent arm models and TF.
+# The whole-robot RViz entry always owns its TF, regardless of this switch.
+# Takes effect on restart; use a YAML boolean, not a quoted string.
+publish_description: false
+
 # Private parameters of the two controller nodes.
 # MCU destination UDP port is 8880 in the vendor transport.
 left_arm:

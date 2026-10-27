@@ -12,7 +12,11 @@ roslaunch z1_bringup arm.launch
 
 启动前，安装包清单中的依赖，构建 ROS 1 工作空间并加载 `devel/setup.bash`，同时建立主机到两臂 MCU 的网络连接。
 
-两臂 IP、本地 UDP 端口和接收预算统一写在 [communication.yaml](z1_bringup/config/communication.yaml)。默认左臂 IP 为 `192.168.123.110`、本地端口 `8881`；右臂 IP 为 `192.168.123.111`、本地端口 `8882`。MCU 目标端口为官方通信库使用的 `8880`。修改通信配置后，仍使用同一启动命令。
+两臂 IP、本地 UDP 端口、接收预算和单臂模型发布开关统一写在 [communication.yaml](z1_bringup/config/communication.yaml)。默认左臂 IP 为 `192.168.123.110`、本地端口 `8881`；右臂 IP 为 `192.168.123.111`、本地端口 `8882`。MCU 目标端口为官方通信库使用的 `8880`。
+
+## 零点标定
+
+停止双臂控制器并将机械臂摆到机械零位后，执行 `rosrun z1_control z1_calibrate`。独立 C++ 工具读取 [calibration.yaml](z1_control/config/calibration.yaml)，复用通信配置，逐臂要求确认、调用官方标定接口并验证新的六轴零位反馈。默认标定左右两臂，也可在 YAML 中选择单臂。操作流程、结果和独立构建方式见 [双臂零点标定](CALIBRATION.md)。
 
 ## 这个入口启动什么
 
@@ -24,9 +28,9 @@ roslaunch z1_bringup arm.launch
 
 ### 2. 加载两臂模型
 
-通过 Xacro 展开 [Z1 描述模型](z1_description/urdf/z1.urdf.xacro)，分别写入 `/left_arm/robot_description` 和 `/right_arm/robot_description`，提供带各自前缀的连杆、关节和工具坐标系。
+独立启动时，只有将 `communication.yaml` 中的 `publish_description` 设为 `true`，才通过 Xacro 展开 [Z1 描述模型](z1_description/urdf/z1.urdf.xacro)，分别写入 `/left_arm/robot_description` 和 `/right_arm/robot_description`，提供带各自前缀的连杆、关节和工具坐标系。默认关闭，使用整机显示入口时由整机提供描述模型。
 
-两个控制节点同时读取 [控制 URDF](z1_description/urdf/z1_control.urdf)，使用其中的运动学、关节限位、质量、惯性和碰撞几何，完成末端位姿计算、逆运动学、动力学和距离检查。
+无论该开关如何设置，两个控制节点始终读取 [控制 URDF](z1_description/urdf/z1_control.urdf)，使用其中的运动学、关节限位、质量、惯性和碰撞几何，完成末端位姿计算、逆运动学、动力学和距离检查。
 
 末端目标分别相对 `left_link00` 和 `right_link00` 表达。默认 TCP 为 `tool`，位于 `link06` 沿 X 正方向 0.051 m，姿态相同；描述模型中对应 `left_tool` 和 `right_tool`。
 
@@ -43,12 +47,12 @@ roslaunch z1_bringup arm.launch
 
 ### 4. 发布两臂关节变换
 
-默认启动两个 `robot_state_publisher`：
+独立启动 `arm.launch` 时，由 [communication.yaml](z1_bringup/config/communication.yaml) 中的 `publish_description` 开关控制（默认 `false`，使用 YAML 布尔值）：
 
-- **`/left_arm/state_publisher`**：读取左臂描述和 `/left_arm/joint_states`，发布左臂 TF。
-- **`/right_arm/state_publisher`**：读取右臂描述和 `/right_arm/joint_states`，发布右臂 TF。
+- 设为 `false` 时（默认）：不加载单臂模型也不发布单臂 TF，由整机启动层统一提供模型和 TF。
+- 设为 `true` 时：启动两个 `robot_state_publisher` 分别读取两臂描述和 `joint_states`，发布单臂 TF。
 
-当整机启动层已经统一提供模型和 TF 时，设置 `publish_description:=false`，由整机启动层负责这些发布。
+启动 `roslaunch unidingo_rviz_test rviz_tcp_test.launch` 时，始终由整机入口统一发布模型和 TF，不启动单臂发布器；此入口不受上述独立发布开关影响。
 
 ### 5. 提供运动命令和状态反馈
 

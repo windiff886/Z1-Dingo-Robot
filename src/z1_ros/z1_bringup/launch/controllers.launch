@@ -1,0 +1,18 @@
+<!-- Internal shared controller setup; use arm.launch for standalone bringup. -->
+<launch>
+  <rosparam command="load" file="$(find z1_bringup)/config/communication.yaml"/>
+  <group ns="left_arm">
+    <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen">
+      <rosparam command="load" file="$(find z1_bringup)/config/control.yaml"/>
+      <param name="model_file" value="$(find z1_description)/urdf/z1_control.urdf"/>
+      <param name="joint_prefix" value="left_"/>
+    </node>
+  </group>
+  <group ns="right_arm">
+    <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen">
+      <rosparam command="load" file="$(find z1_bringup)/config/control.yaml"/>
+      <param name="model_file" value="$(find z1_description)/urdf/z1_control.urdf"/>
+      <param name="joint_prefix" value="right_"/>
+    </node>
+  </group>
+</launch>

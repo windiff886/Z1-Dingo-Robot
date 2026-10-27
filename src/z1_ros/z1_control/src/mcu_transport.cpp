@@ -11,6 +11,7 @@ struct McuTransport::Impl {
   std::unique_ptr<LowLevelState> state;
   uint64_t sequence{};
   unsigned missed{};
+  bool passive_feedback{}, calibration_attempted{};
   ~Impl() {
     io.reset();
     state.reset();
@@ -38,6 +39,7 @@ McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
 McuTransport::~McuTransport() = default;
 Exchange McuTransport::exchange(const Output &output, double) {
   auto &p = *impl_;
+  p.passive_feedback = false;
   udp::Scope scope(p.observer);
   p.observer.fresh = false;
   p.observer.sent = true;
@@ -111,6 +113,59 @@ Exchange McuTransport::exchange(const Output &output, double) {
     e.error = "MCU packet send failed";
     e.feedback.transport_fault = true;
   }
+  p.passive_feedback = !output.enabled && e.sent && e.feedback.fresh &&
+                       !e.feedback.motor_fault && !e.feedback.transport_fault &&
+                       e.feedback.q.allFinite() && e.feedback.dq.allFinite();
   return e;
+}
+CalibrationReply McuTransport::calibrate(unsigned reply_timeout_us) {
+  auto &p = *impl_;
+  const double age = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - p.observer.received)
+                         .count();
+  if (reply_timeout_us < 1000 || reply_timeout_us > 1000000)
+    return {CalibrationCode::NotAttempted, "reply timeout must be 1..1000 ms"};
+  if (p.calibration_attempted)
+    return {CalibrationCode::NotAttempted,
+            "calibration already attempted on this connection"};
+  if (!p.passive_feedback || age < 0 || age > 0.25)
+    return {CalibrationCode::NotAttempted,
+            "recent valid passive feedback is required"};
+
+  // Discard queued feedback/old replies before the single maintenance request.
+  for (int fd : p.observer.descriptors) {
+    uint8_t bytes[1500];
+    unsigned drained = 0;
+    while (drained < 32 && recv(fd, bytes, sizeof(bytes), MSG_DONTWAIT) >= 0)
+      ++drained;
+    if (drained == 32)
+      return {CalibrationCode::NotAttempted, "receive backlog limit exceeded"};
+  }
+  udp::Scope scope(p.observer);
+  struct RestoreBudget {
+    udp::Observer &observer;
+    unsigned previous;
+    ~RestoreBudget() { observer.budget_us = previous; }
+  } restore{p.observer, p.observer.budget_us};
+  p.observer.budget_us = reply_timeout_us;
+  p.observer.fresh = false;
+  p.observer.sent = true;
+  p.observer.last_length = 0;
+  p.observer.state_bytes.fill(0);
+  p.passive_feedback = false;
+  p.calibration_attempted = true;
+  const bool accepted = p.io->calibration();
+  // The vendor ignores the receive return code. Require a new, exact-length
+  // reply from the MCU endpoint as well as its boolean result.
+  if (!p.observer.sent || !p.observer.fresh || p.observer.last_length != 1)
+    return {CalibrationCode::Unknown,
+            "no valid calibration reply; do not automatically retry"};
+  if (accepted && p.observer.state_bytes[0] == 0x10)
+    return {CalibrationCode::Succeeded, "MCU acknowledged calibration"};
+  if (p.observer.state_bytes[0] == 0xff)
+    return {CalibrationCode::DeviceRejected,
+            "MCU reported a calibration error"};
+  return {CalibrationCode::Unknown,
+          "unexpected calibration reply; do not automatically retry"};
 }
 } // namespace z1

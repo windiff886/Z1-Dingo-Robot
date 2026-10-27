@@ -11,7 +11,7 @@ source devel/setup.bash
 roslaunch unidingo_rviz_test rviz_tcp_test.launch
 ```
 
-启动命令无需附加参数。此命令同时启动左右机械臂控制器、连接各自的真实 MCU，并启动整机显示和目标发送节点。启动文件向机械臂入口传入 `publish_description=false`，由本入口统一发布整机模型和 TF。
+启动命令无需附加参数。此命令同时启动左右机械臂控制器、连接各自的真实 MCU，并启动整机显示和目标发送节点。运行选项从 YAML 读取，由本入口统一发布整机模型和 TF。即使独立机械臂配置中的 `publish_description` 设为 `true`，本入口也不会启动单臂模型或 TF 发布器。
 
 双臂通信参数来自 [communication.yaml](../z1_bringup/config/communication.yaml)，需按实际设备配置 IP 和本地端口。连接成功后机械臂处于 Disabled，通过界面菜单使能后才进入 Holding。
 
@@ -56,7 +56,7 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 ### 5. 启动双臂控制器
 
-启动文件直接包含 [z1_bringup/launch/arm.launch](../z1_bringup/launch/arm.launch)，启动 `/left_arm/controller` 和 `/right_arm/controller`。机械臂入口读取 SDK 的通信和控制 YAML；本入口设置 `publish_description=false`，避免重复发布机械臂模型和 TF。
+启动文件复用 SDK 的内部 [controllers.launch](../z1_bringup/launch/controllers.launch)，启动 `/left_arm/controller` 和 `/right_arm/controller`，读取 SDK 的通信和控制 YAML。该内部文件只启动控制器，整机入口始终独占模型和 TF 发布职责。
 
 两臂分别加载 SDK 控制配置、连接各自 MCU，并发布关节、TCP、控制状态与运动结果。左右臂的使能、目标和停止分别管理。
 
@@ -77,7 +77,7 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 | 文件 | 内容 |
 | --- | --- |
 | [config/rviz_tcp_test.yaml](config/rviz_tcp_test.yaml) | 目标发送方式、速度比例和反馈时效 |
-| [z1_bringup/config/communication.yaml](../z1_bringup/config/communication.yaml) | 两臂 MCU IP、本地 UDP 端口和接收预算 |
+| [z1_bringup/config/communication.yaml](../z1_bringup/config/communication.yaml) | 两臂 MCU IP、本地 UDP 端口和接收预算；`publish_description` 仅用于独立启动机械臂，默认 `false` |
 | [z1_bringup/config/control.yaml](../z1_bringup/config/control.yaml) | SDK 控制周期、运动限制、增益和碰撞参数 |
 
 测试配置加载到 `/rviz_tcp_test` 的私有参数空间：

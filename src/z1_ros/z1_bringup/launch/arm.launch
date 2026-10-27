@@ -1,29 +1,4 @@
 <launch>
-  <arg name="config" default="$(find z1_bringup)/config/communication.yaml"/>
-  <arg name="publish_description" default="true"/>
-  <rosparam command="load" file="$(arg config)"/>
-
-  <group ns="left_arm">
-    <group if="$(arg publish_description)">
-      <param name="robot_description" command="$(find xacro)/xacro '$(find z1_description)/urdf/z1.urdf.xacro' prefix:=left_"/>
-      <node pkg="robot_state_publisher" type="robot_state_publisher" name="state_publisher"/>
-    </group>
-    <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen">
-      <rosparam command="load" file="$(find z1_bringup)/config/control.yaml"/>
-      <param name="model_file" value="$(find z1_description)/urdf/z1_control.urdf"/>
-      <param name="joint_prefix" value="left_"/>
-    </node>
-  </group>
-
-  <group ns="right_arm">
-    <group if="$(arg publish_description)">
-      <param name="robot_description" command="$(find xacro)/xacro '$(find z1_description)/urdf/z1.urdf.xacro' prefix:=right_"/>
-      <node pkg="robot_state_publisher" type="robot_state_publisher" name="state_publisher"/>
-    </group>
-    <node pkg="z1_control" type="z1_topic_node" name="controller" output="screen">
-      <rosparam command="load" file="$(find z1_bringup)/config/control.yaml"/>
-      <param name="model_file" value="$(find z1_description)/urdf/z1_control.urdf"/>
-      <param name="joint_prefix" value="right_"/>
-    </node>
-  </group>
+  <include file="$(find z1_bringup)/launch/controllers.launch"/>
+  <node pkg="z1_bringup" type="publish_description.py" name="arm_description" output="screen"/>
 </launch>

@@ -28,6 +28,7 @@ public:
       disconnected{false};
   int protocol, joints;
   std::atomic<unsigned> commands{0};
+  std::atomic<unsigned> calibrations{0};
   Firmware(int v, int n) : protocol(v), joints(n) {
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     require(fd >= 0, "loopback socket unavailable");
@@ -62,7 +63,11 @@ public:
         continue;
       std::array<uint8_t, 160> reply{};
       size_t size{};
-      if (n == 1) {
+      if (n == 1 && bytes[0] == 1) {
+        ++calibrations;
+        reply[0] = 0x10;
+        size = 1;
+      } else if (n == 1) {
         if (stage % 2 == 0) {
           reply[0] = 0x20;
           reply[1] = joints == 7 ? 8 : 7;
@@ -170,6 +175,36 @@ int main() {
         threw = true;
       }
       require(threw, "duplicate local port accepted");
+    }
+    {
+      Firmware server(2, 6);
+      McuTransport driver(cfg);
+      require(driver.calibrate(200000).code == CalibrationCode::NotAttempted,
+              "calibration without passive feedback was allowed");
+      Output enabled;
+      enabled.enabled = true;
+      driver.exchange(enabled, now());
+      require(driver.calibrate(200000).code == CalibrationCode::NotAttempted,
+              "calibration after an enabled command was allowed");
+      driver.exchange(Output{}, now());
+      require(driver.calibrate(0).code == CalibrationCode::NotAttempted,
+              "invalid calibration timeout was allowed");
+      require(server.calibrations == 0, "preflight failure sent calibration");
+      const double started = now();
+      require(driver.calibrate(200000).code == CalibrationCode::Succeeded,
+              "official calibration reply was not accepted");
+      require(now() - started >= 1.9, "official calibration wait was bypassed");
+      driver.exchange(Output{}, now());
+      require(driver.calibrate(200000).code == CalibrationCode::NotAttempted,
+              "calibration repeated on the same connection");
+      require(server.calibrations == 1,
+              "more than one calibration request sent");
+      server.drop = true;
+      const double waiting = now();
+      require(!driver.exchange(Output{}, now()).feedback.fresh,
+              "missing feedback accepted after calibration");
+      require(now() - waiting < 0.1,
+              "calibration did not restore receive budget");
     }
     std::cout << "PASS: observed official MCU adapter over loopback\n";
     return 0;

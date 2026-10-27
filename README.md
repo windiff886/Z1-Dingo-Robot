@@ -19,9 +19,14 @@ roslaunch z1_bringup arm.launch
 | --- | --- |
 | [communication.yaml](src/z1_ros/z1_bringup/config/communication.yaml) | 各臂 IP、本地 UDP 端口、接收预算 |
 | [control.yaml](src/z1_ros/z1_bringup/config/control.yaml) | 控制周期、速度/加速度/jerk、力矩、增益、容差及碰撞检查参数 |
+| [calibration.yaml](src/z1_ros/z1_control/config/calibration.yaml) | 标定对象、静止检查、回执超时和零位验证容差 |
 | [z1_control.urdf](src/z1_ros/z1_description/urdf/z1_control.urdf) | 六轴运动学、质量/惯性、工具坐标系及碰撞几何 |
 
 默认左臂 IP 为 `192.168.123.110`、本地端口 `8881`；右臂 IP 为 `192.168.123.111`、本地端口 `8882`。修改通信配置后仍使用同一启动命令。
+
+## 零点标定
+
+停止双臂控制器并将机械臂摆到机械零位后，运行 `rosrun z1_control z1_calibrate`，按提示分别确认左臂和右臂。程序调用官方标定接口并验证六轴反馈，参数从 YAML 读取。完整步骤及无需 ROS 的独立构建方式见 [双臂零点标定](src/z1_ros/CALIBRATION.md)。
 
 ## 接口
 
