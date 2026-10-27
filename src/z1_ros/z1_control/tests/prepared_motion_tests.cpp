@@ -155,7 +155,7 @@ void linearMotion(const ModelConfig &model) {
   std::cout << "MoveL_contour_error_m=" << max_error
             << ",rotation_error_rad=" << max_rotation << '\n';
 }
-void intermediateCollision(const ModelConfig &model) {
+void diagnosticGeometry(const ModelConfig &model) {
   Model m(model);
   Vec center;
   center << 0, .8, -1.1, .3, 0, 0;
@@ -179,8 +179,8 @@ void intermediateCollision(const ModelConfig &model) {
   controller.step(feedback, 1.002);
   Vec end = feedback.q;
   end[0] = 1;
-  require(!controller.jointWaypoints(40, {end}, .3),
-          "prepared path ignored intermediate collision");
+  require(controller.jointWaypoints(40, {end}, .3),
+          "diagnostic geometry blocked a prepared joint-valid path");
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
     timedExecution(model);
     passingWaypoints(model);
     linearMotion(model);
-    intermediateCollision(model);
+    diagnosticGeometry(model);
     std::cout << "prepared controller motion tests passed\n";
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

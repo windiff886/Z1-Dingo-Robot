@@ -19,7 +19,6 @@ Vec home() {
 Config commissioning() {
   Config c;
   c.period = 0.004;
-  c.collision_check_enabled = false;
   return c;
 }
 struct Fixture {
@@ -46,9 +45,10 @@ struct Fixture {
     feedback.fresh = true;
     output = controller.step(feedback, now);
     require((output.tau.cwiseAbs().array() <= config.torque.array()).all(),
-            "torque limit lost with clearance checks off");
-    require((output.dq.cwiseAbs().array() <= config.velocity.array() + 1e-8).all(),
-            "velocity limit lost with clearance checks off");
+            "torque limit lost with diagnostic geometry");
+    require(
+        (output.dq.cwiseAbs().array() <= config.velocity.array() + 1e-8).all(),
+        "velocity limit lost with diagnostic geometry");
   }
   void enable() {
     controller.operate(Operation::Enable);
@@ -60,7 +60,7 @@ struct Fixture {
     for (unsigned i = 0; i < 5000; ++i) {
       tick();
       const auto mode = controller.snapshot().mode;
-      require(mode != Mode::Fault, "motion faulted with clearance checks off");
+      require(mode != Mode::Fault, "motion faulted with diagnostic geometry");
       if (mode == expected)
         return;
       require(expected == Mode::AwaitResume || mode != Mode::AwaitResume,
@@ -71,13 +71,10 @@ struct Fixture {
 };
 
 void enableAndMotion(const ModelConfig &model) {
-  require(Config{}.collision_check_enabled, "native default must retain geometry protection");
-  Fixture protected_home(model, Config{});
-  protected_home.controller.operate(Operation::Enable);
-  protected_home.tick();
-  require(protected_home.controller.snapshot().mode == Mode::Disabled &&
-              !protected_home.output.enabled,
-          "default geometry gate no longer rejects close home pose");
+  Fixture startup(model, Config{});
+  startup.enable();
+  require(startup.controller.snapshot().mode == Mode::Holding,
+          "normal folded home pose must permit holding");
 
   Fixture f(model, commissioning());
   f.enable();
@@ -90,7 +87,8 @@ void enableAndMotion(const ModelConfig &model) {
 
   Vec target = home();
   target[0] = .02;
-  require(f.controller.goal(1, target, .05), "finite joint goal blocked by geometry");
+  require(f.controller.goal(1, target, .05),
+          "finite joint goal blocked by geometry");
   f.finish();
   require((f.output.q - target).norm() < 1e-8, "finite goal failed to track");
   target[0] += .01;
@@ -108,7 +106,8 @@ void enableAndMotion(const ModelConfig &model) {
   point.position = f.output.q;
   point.position[0] += .01;
   point.time_from_start = 1;
-  require(f.controller.trajectory(4, {point}), "timed path blocked by geometry");
+  require(f.controller.trajectory(4, {point}),
+          "timed path blocked by geometry");
   f.finish();
   f.controller.operate(Operation::JointStream);
   f.tick();
@@ -141,7 +140,8 @@ void remainingProtections(const ModelConfig &model) {
   Vec bad = home();
   bad[0] = bounds.upper()[0] + .1;
   require(!f.controller.goal(1, bad), "joint goal limit disabled");
-  require(!f.controller.jointWaypoints(2, {bad}), "prepared joint limit disabled");
+  require(!f.controller.jointWaypoints(2, {bad}),
+          "prepared joint limit disabled");
   bad = home();
   bad[0] = std::numeric_limits<double>::quiet_NaN();
   require(!f.controller.goal(3, bad), "nonfinite target accepted");
@@ -155,14 +155,16 @@ void remainingProtections(const ModelConfig &model) {
   f.tick(false);
   require(f.controller.snapshot().mode == Mode::Fault && !f.output.enabled,
           "joint-bounded braking lost with checks off");
-  require(f.controller.snapshot().reason.find("joint limits") != std::string::npos,
+  require(f.controller.snapshot().reason.find("joint limits") !=
+              std::string::npos,
           "braking test failed for unrelated reason");
 
   Fixture motor(model, commissioning());
   motor.enable();
   motor.feedback.motor_fault = true;
   motor.tick(false);
-  require(motor.controller.snapshot().mode == Mode::Fault && !motor.output.enabled,
+  require(motor.controller.snapshot().mode == Mode::Fault &&
+              !motor.output.enabled,
           "motor fault protection disabled");
 
   Fixture stale(model, commissioning());
@@ -170,7 +172,8 @@ void remainingProtections(const ModelConfig &model) {
   stale.now += .09;
   stale.feedback.fresh = false;
   stale.output = stale.controller.step(stale.feedback, stale.now);
-  require(stale.controller.snapshot().mode == Mode::Fault && !stale.output.enabled,
+  require(stale.controller.snapshot().mode == Mode::Fault &&
+              !stale.output.enabled,
           "feedback/deadline protection disabled");
 }
 
@@ -188,7 +191,8 @@ void configuredObstacle(const ModelConfig &model) {
           "test no longer covers configured obstacle enforcement");
   Vec target = home();
   target[0] = .01;
-  require(f.controller.goal(1, target, .05), "configured-obstacle geometry still enforced");
+  require(f.controller.goal(1, target, .05),
+          "configured-obstacle geometry still enforced");
   f.finish();
 }
 
@@ -215,7 +219,8 @@ void runtimeCommissioning(const ModelConfig &model) {
   auto *recorded = transport.get();
   Runtime runtime(model, commissioning(), std::move(transport));
   auto wait = [&](auto ready) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (!ready()) {
       require(std::chrono::steady_clock::now() < deadline,
               "250 Hz offline runtime did not reach expected state");
@@ -228,12 +233,97 @@ void runtimeCommissioning(const ModelConfig &model) {
   wait([&] { return runtime.controller().snapshot().mode == Mode::Holding; });
   Vec target = home();
   target[0] = .02;
-  require(runtime.controller().goal(1, target, .05), "250 Hz runtime rejected goal");
+  require(runtime.controller().goal(1, target, .05),
+          "250 Hz runtime rejected goal");
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   runtime.stop();
   require(runtime.controller().snapshot().mode == Mode::AwaitResume,
           "250 Hz runtime did not finish controlled shutdown");
   require(!recorded->last_enabled, "runtime shutdown omitted passive output");
+}
+void firstGoalAndTiming(const ModelConfig &model) {
+  Fixture f(model, commissioning());
+  Vec target = home();
+  target[0] += .01;
+  require(f.controller.goal(1, target, .05),
+          "first joint goal requires manual enable");
+  f.finish();
+  f.controller.operate(Operation::Disable);
+  f.tick();
+  Model kinematics(model);
+  target[0] += .01;
+  require(f.controller.poseGoal(2, kinematics.fk(target), .05),
+          "first pose goal requires manual enable");
+  f.finish();
+
+  Fixture prepared(model, commissioning());
+  require(prepared.controller.jointWaypoints(1, {target}, .05),
+          "first prepared path requires manual enable");
+  prepared.finish();
+
+  Fixture timed(model, commissioning());
+  TrajectoryPoint endpoint;
+  endpoint.time_from_start = 1;
+  endpoint.position = target;
+  require(timed.controller.trajectory(1, {endpoint}),
+          "first timed path requires manual enable");
+  timed.finish();
+
+  Vec nominal;
+  nominal << 0, .8, -1.1, .3, 0, 0;
+  Fixture linear(model, commissioning(), nominal);
+  auto pose_target = kinematics.fk(nominal);
+  pose_target.translation().z() += .003;
+  require(linear.controller.moveL(1, pose_target, .3),
+          "first linear path requires manual enable");
+  linear.finish();
+
+  Fixture invalid(model, commissioning());
+  auto bad = target;
+  bad[0] = kinematics.upper()[0] + .1;
+  require(!invalid.controller.goal(1, bad), "invalid first goal accepted");
+  invalid.tick();
+  require(!invalid.output.enabled &&
+              invalid.controller.snapshot().mode == Mode::Disabled,
+          "rejected first goal enabled output");
+  invalid.feedback.dq[0] = .04;
+  invalid.tick(false);
+  require(!invalid.controller.goal(2, target),
+          "moving passive arm accepted a first goal");
+  invalid.feedback.dq.setZero();
+  invalid.tick(false);
+  invalid.now += .09;
+  invalid.feedback.fresh = false;
+  invalid.output = invalid.controller.step(invalid.feedback, invalid.now);
+  require(!invalid.controller.goal(3, target),
+          "stale passive feedback accepted a first goal");
+
+  // Force a compute overrun with a synthetic 100 ns budget, without depending
+  // on operating-system sleep precision. Valid feedback must retain output.
+  auto short_period = commissioning();
+  short_period.period = 1e-7;
+  Fixture overrun(model, short_period);
+  overrun.enable();
+  require(overrun.controller.snapshot().overruns > 0 && overrun.output.enabled,
+          "a compute overrun disabled otherwise valid control");
+
+  Fixture gains(model, commissioning());
+  gains.enable();
+  require(gains.controller.gains(Vec::Constant(600), Vec::Constant(101)),
+          "arbitrary gain ceiling remains");
+  require(!gains.controller.gains(Vec::Constant(-1), Vec::Ones()),
+          "negative impedance gain accepted");
+  gains.tick();
+
+  auto configured = commissioning();
+  configured.kp.setConstant(6000);
+  configured.kd.setConstant(201);
+  configured.stiffness.setConstant(600);
+  configured.damping.setConstant(101);
+  Fixture tuned(model, configured);
+  tuned.enable();
+  tuned.feedback.q[0] -= .1;
+  tuned.tick(false); // Fixture checks the physical torque limit on every tick.
 }
 } // namespace
 
@@ -245,7 +335,9 @@ int main(int argc, char **argv) {
     remainingProtections(model);
     configuredObstacle(model);
     runtimeCommissioning(model);
-    std::cout << "Clearance switch: offline enable, motion, stop and retained protections passed\n";
+    firstGoalAndTiming(model);
+    std::cout << "Motion contract: first goals, diagnostic geometry, stop and "
+                 "physical limits passed\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';

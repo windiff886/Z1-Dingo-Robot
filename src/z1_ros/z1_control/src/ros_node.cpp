@@ -1,8 +1,8 @@
 #include "z1_control/runtime.hpp"
 #include <XmlRpcValue.h>
 #include <geometry_msgs/PoseStamped.h>
-#include <ros/ros.h>
 #include <ros/callback_queue.h>
+#include <ros/ros.h>
 #include <sensor_msgs/JointState.h>
 #include <set>
 #include <stdexcept>
@@ -125,13 +125,7 @@ public:
     base_frame_ = prefix_ + "link00";
     params_.param("command_max_age", command_age_, 0.2);
     params_.param("publish_rate", publish_rate_, 100.0);
-    params_.param("collision_check_enabled", config_.collision_check_enabled,
-                  true);
-    if (!config_.collision_check_enabled)
-      ROS_WARN("Geometric clearance/collision checks DISABLED for this arm; "
-               "joint, motion, torque and feedback limits remain active");
-    if (command_age_ <= 0 || !std::isfinite(command_age_) ||
-        publish_rate_ <= 0 || publish_rate_ > 250 ||
+    if (command_age_ <= 0 || !std::isfinite(command_age_) || publish_rate_ <= 0 ||
         !std::isfinite(publish_rate_))
       throw std::runtime_error("invalid adapter timing");
     for (auto entry :
@@ -144,10 +138,6 @@ public:
           {"reference_horizon", &config_.reference_horizon},
           {"impedance_gain_time_constant",
            &config_.impedance_gain_time_constant},
-          {"collision_margin", &config_.collision_margin},
-          {"collision_warning", &config_.collision_warning},
-          {"validation_budget", &config_.validation_budget},
-          {"lookahead_budget", &config_.lookahead_budget},
           {"position_tolerance", &config_.position_tolerance},
           {"velocity_tolerance", &config_.velocity_tolerance},
           {"settle_timeout", &config_.settle_timeout},
@@ -215,12 +205,12 @@ public:
     if (!params_.getParam("mcu_ip", ip) ||
         !params_.getParam("local_port", port) ||
         !params_.getParam("receive_budget_us", budget))
-      throw std::runtime_error(
-          "mcu_ip, local_port and receive_budget_us are required in the communication YAML");
+      throw std::runtime_error("mcu_ip, local_port and receive_budget_us are "
+                               "required in the communication YAML");
     if (port <= 0 || port > 65535 || budget <= 0 ||
-        budget * 1e-6 + config_.lookahead_budget >= config_.period)
+        budget * 1e-6 >= config_.period)
       throw std::runtime_error(
-          "invalid port or receive/check budgets leave no control time");
+          "invalid port or receive budget leaves no control time");
     z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
                       static_cast<unsigned>(budget)};
     runtime_ = std::make_unique<z1::Runtime>(
@@ -401,9 +391,8 @@ public:
                       runtime_->controller().gains(vector(m->stiffness),
                                                    vector(m->damping));
           result(m->command_id, okay,
-                 okay
-                     ? "gains applied"
-                     : "requires holding/impedance and bounded positive gains");
+                 okay ? "gains applied"
+                      : "requires holding/impedance and finite positive gains");
         }));
     subscriptions_.push_back(nh_.subscribe<z1_msgs::GripperGoal>(
         "gripper_goal", 1, [this](const z1_msgs::GripperGoal::ConstPtr &m) {

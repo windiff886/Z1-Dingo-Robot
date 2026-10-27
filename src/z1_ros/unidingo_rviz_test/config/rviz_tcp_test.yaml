@@ -1,7 +1,5 @@
 # Private parameters of the rviz_tcp_test node.
-# Send one pose goal after releasing a dragged TCP handle. When false, use
-# the "Send target once" menu action instead.
-send_on_release: false
+# Releasing a dragged TCP handle submits one pose goal.
 # Joint-motion speed scale for pose goals, in (0, 1].
 speed_scale: 0.05
 # Maximum source-message age and time since receipt, in seconds.

@@ -66,11 +66,4 @@ ClearanceSample Model::clearanceSample(const Vec &q,
   return {minimum, p.distance_pairs[nearest].name};
 }
 
-double Model::distanceMotionBound(const Vec &joint_motion) const {
-  const Vec motion = joint_motion.cwiseAbs();
-  double bound = 0;
-  for (const auto &pair : impl_->distance_pairs)
-    bound = std::max(bound, pair.reach.dot(motion));
-  return bound;
-}
 } // namespace z1

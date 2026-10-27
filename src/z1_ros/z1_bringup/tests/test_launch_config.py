@@ -56,8 +56,7 @@ class LaunchConfiguration(unittest.TestCase):
             self.assertNotIn(parameters['local_port'], ports)
             ports.add(parameters['local_port'])
             self.assertGreater(parameters['receive_budget_us'], 0)
-            self.assertLess(parameters['receive_budget_us'] * 1e-6
-                            + self.control['lookahead_budget'], self.control['period'])
+            self.assertLess(parameters['receive_budget_us'] * 1e-6, self.control['period'])
 
     def test_description_publishers_share_the_switch(self):
         helper = self.launch.find("node[@type='publish_description.py']")

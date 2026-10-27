@@ -29,20 +29,12 @@ stiffness: [30, 30, 30, 0.2, 0.2, 0.2]
 damping: [4, 4, 4, 0.02, 0.02, 0.02]
 gravity: [0, 0, -9.81]
 tool_frame: tool
-# Temporary commissioning setting: disables geometric enable/stop/path checks
-# for BOTH arms. Distances are still reported. Restore true and restart to
-# re-enable self-collision and configured-obstacle clearance protection.
-collision_check_enabled: false
-collision_margin: 0.008
-collision_warning: 0.03
-validation_budget: 2.0
-lookahead_budget: 0.0005
 position_tolerance: 0.015
 velocity_tolerance: 0.03
 settle_timeout: 3.0
 tcp_position_tolerance: 0.005
 tcp_orientation_tolerance: 0.025
-# These pairs overlap around their mounting joints. Other pairs are checked.
+# Diagnostic distance pairs; these mounting envelopes overlap by design.
 ignored_collision_pairs:
   - [link00, link01]
   - [link01, link02]
@@ -54,8 +46,8 @@ ignored_collision_pairs:
   - [link00, link02]
   - [link04, link06]
   - [link05, tool]
-# Fixed structures use metres and base-frame xyz/rpy. Populate from measured mounting geometry.
-# Example schema (do not enable arbitrary geometry on a real installation):
+# Diagnostic fixed structures use metres and base-frame xyz/rpy.
+# Example schema; replace with measured geometry for useful diagnostics:
 # - name: support
 #   size: [0.1, 0.1, 0.2]
 #   xyz: [0.3, 0.0, -0.2]

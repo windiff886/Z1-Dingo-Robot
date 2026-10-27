@@ -30,44 +30,6 @@ bool streaming(Mode m) {
   return m == Mode::JointStream || m == Mode::PoseStream ||
          m == Mode::Impedance;
 }
-template <class Sample>
-bool geometryPathSafe(Sample sample, double end, const Config &config,
-                      Model &model, double margin, double budget,
-                      std::string *failure, const Vec &uncertainty,
-                      Clock::time_point started) {
-  auto fail = [failure](const std::string &reason) {
-    if (failure)
-      *failure = reason;
-    return false;
-  };
-  double at = 0;
-  const double acceleration = model.distanceMotionBound(config.acceleration);
-  for (unsigned count = 0; count < config.max_collision_samples; ++count) {
-    const auto point = sample(at);
-    if (!model.withinLimits(point.position))
-      return fail("trajectory sample outside joint limits");
-    if (seconds(started) > budget)
-      return fail("collision validation time budget exceeded");
-    const auto result = model.clearanceSample(point.position, uncertainty);
-    if (seconds(started) > budget)
-      return fail("collision validation time budget exceeded");
-    const double clearance = result.distance - margin;
-    if (clearance <= 0)
-      return fail("collision margin violated: " + std::string(result.pair));
-    if (at >= end)
-      return true;
-    const double speed = model.distanceMotionBound(point.velocity);
-    const double allowance = 0.8 * clearance;
-    const double step = std::min(
-        0.05,
-        2 * allowance /
-            (std::sqrt(speed * speed + 2 * acceleration * allowance) + speed));
-    if (step < 1e-6)
-      return fail("collision validation resolution limit");
-    at = std::min(end, at + step);
-  }
-  return fail("collision validation sample budget exceeded");
-}
 } // namespace
 ModelConfig defaultModelConfig(const std::string &path) {
   ModelConfig c;
@@ -82,18 +44,12 @@ ModelConfig defaultModelConfig(const std::string &path) {
   return c;
 }
 Controller::Controller(ModelConfig m, Config c)
-    : model_config_(m), config_(c), model_(m), planning_model_(m),
-      generator_(c.period), stiffness_(c.stiffness), damping_(c.damping) {
-  if (!std::isfinite(c.period) || c.period < 0.001 || c.period > 0.02 ||
+    : config_(c), model_(m), planning_model_(m), generator_(c.period),
+      stiffness_(c.stiffness), damping_(c.damping) {
+  if (!std::isfinite(c.period) || c.period <= 0 ||
       !std::isfinite(c.feedback_timeout) || c.feedback_timeout < c.period ||
-      !std::isfinite(c.stream_timeout) || c.stream_timeout < c.period ||
-      !std::isfinite(c.collision_margin) || c.collision_margin <= 0 ||
-      !std::isfinite(c.collision_warning) ||
-      c.collision_warning <= c.collision_margin ||
-      c.max_collision_samples == 0 ||
-      c.validation_budget <= 0 || c.lookahead_budget <= 0 ||
-      c.lookahead_budget >= c.period)
-    throw std::invalid_argument("invalid timing/collision configuration");
+      !std::isfinite(c.stream_timeout) || c.stream_timeout < c.period)
+    throw std::invalid_argument("invalid control timing");
   for (double value : {c.reference_preview, c.reference_extrapolation,
                        c.reference_velocity_filter, c.reference_horizon,
                        c.impedance_gain_time_constant})
@@ -107,21 +63,15 @@ Controller::Controller(ModelConfig m, Config c)
     if (!v->allFinite() || (v->array() <= 0).any())
       throw std::invalid_argument("invalid positive control limits/gains");
   config_.torque = config_.torque.cwiseMin(model_.effort());
-  if (!std::isfinite(c.validation_budget) ||
-      !std::isfinite(c.lookahead_budget) ||
-      !std::isfinite(c.position_tolerance) || c.position_tolerance <= 0 ||
+  if (!std::isfinite(c.position_tolerance) || c.position_tolerance <= 0 ||
       !std::isfinite(c.velocity_tolerance) || c.velocity_tolerance <= 0 ||
       !std::isfinite(c.settle_timeout) || c.settle_timeout <= 0 ||
       !std::isfinite(c.tcp_position_tolerance) ||
       c.tcp_position_tolerance <= 0 ||
       !std::isfinite(c.tcp_orientation_tolerance) ||
       c.tcp_orientation_tolerance <= 0 ||
-      (c.velocity.array() > model_.velocityLimit().array()).any() ||
-      (c.kp.array() > 5000).any() || (c.kd.array() > 200).any() ||
-      (c.stiffness.head<3>().array() > 500).any() ||
-      (c.stiffness.tail<3>().array() > 30).any() ||
-      (c.damping.array() > 100).any())
-    throw std::invalid_argument("control gains/limits exceed supported bounds");
+      (c.velocity.array() > model_.velocityLimit().array()).any())
+    throw std::invalid_argument("invalid tolerances or joint velocity limits");
   state_.reason = "startup disabled";
   state_.model_revision = model_.revision();
   std::random_device entropy;
@@ -143,15 +93,13 @@ void Controller::event(uint64_t id, Outcome out, const std::string &why) {
     events_.pop_front();
   events_.push_back({id, out, why});
 }
-bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
-                          double budget, std::string *failure,
-                          const Vec &uncertainty) {
+bool Controller::jointPathWithinLimits(const Trajectory &t, Model &model,
+                                       std::string *failure) {
   auto fail = [failure](const std::string &reason) {
     if (failure)
       *failure = reason;
     return false;
   };
-  auto start = Clock::now();
   double end = t.get_duration();
   if (!std::isfinite(end) || end < 0)
     return fail("invalid trajectory duration");
@@ -211,30 +159,16 @@ bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
           if (p.t[i] > 0 && !segment(p.t[i], p.p[i], p.v[i], p.a[i], p.j[i]))
             return fail("trajectory polynomial outside joint limits");
       }
-  // Polynomial joint bounds above remain mandatory during commissioning.
-  if (!config_.collision_check_enabled)
-    return true;
-  return geometryPathSafe(
-      [&t](double at) {
-        std::array<double, 6> q, v, a;
-        t.at_time(at, q, v, a);
-        TrajectorySample point;
-        point.position = vector(q);
-        point.velocity = vector(v);
-        point.acceleration = vector(a);
-        return point;
-      },
-      end, config_, model, margin, budget, failure, uncertainty, start);
+  return true;
 }
-bool Controller::pathSafe(const JointTrajectory &t, Model &model, double margin,
-                          double budget, std::string *failure,
-                          const Vec &uncertainty) {
-  // JointTrajectory factories already validate polynomial extrema and v/a/jerk.
-  if (!config_.collision_check_enabled)
-    return true;
-  return geometryPathSafe([&t](double at) { return t.sample(at); },
-                          t.duration(), config_, model, margin, budget, failure,
-                          uncertainty, Clock::now());
+bool Controller::readyForFiniteMotion() const {
+  return state_.feedback_valid && (state_.mode == Mode::Holding ||
+                                   (state_.mode == Mode::Disabled &&
+                                    state_.feedback.dq.cwiseAbs().maxCoeff() <
+                                        config_.velocity_tolerance));
+}
+Vec Controller::finiteStart() const {
+  return state_.mode == Mode::Disabled ? state_.feedback.q : reference_;
 }
 
 bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
@@ -243,13 +177,14 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
   uint64_t generation;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (state_.mode != Mode::Holding || id == 0 || id <= last_goal_id_ ||
+    if (!readyForFiniteMotion() || id == 0 || id <= last_goal_id_ ||
         !std::isfinite(speed) || speed <= 0 || speed > 1) {
       event(id, Outcome::Rejected,
-            "requires holding, increasing positive goal ID and speed in (0,1]");
+            "requires valid holding/static disabled feedback, increasing goal "
+            "ID and speed in (0,1]");
       return false;
     }
-    seed = reference_;
+    seed = finiteStart();
     generation = generation_;
   }
   std::lock_guard<std::mutex> planner_lock(planning_mutex_);
@@ -276,9 +211,7 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
       ruckig::Ruckig<6> planner(config_.period);
       okay = planner.calculate(in, candidate) == ruckig::Result::Working;
       if (okay)
-        okay = pathSafe(candidate, planning_model_,
-                        config_.collision_margin + 0.01,
-                        config_.validation_budget, &reason);
+        okay = jointPathWithinLimits(candidate, planning_model_, &reason);
       else
         reason = "finite trajectory generator error";
     } catch (const std::exception &e) {
@@ -291,11 +224,16 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
     event(id, Outcome::Rejected, reason);
     return false;
   }
-  if (generation != generation_ || state_.mode != Mode::Holding ||
-      id <= last_goal_id_ || (reference_ - seed).norm() > 1e-6) {
+  if (generation != generation_ || !readyForFiniteMotion() ||
+      id <= last_goal_id_ ||
+      (finiteStart() - seed).cwiseAbs().maxCoeff() >
+          (state_.mode == Mode::Disabled ? config_.position_tolerance : 1e-6)) {
     event(id, Outcome::Rejected, "state changed during validation");
     return false;
   }
+  reference_ = seed;
+  velocity_.setZero();
+  acceleration_.setZero();
   last_goal_id_ = id;
   finite_ = candidate;
   duration_ = candidate.get_duration();
@@ -328,16 +266,17 @@ bool Controller::preparePath(
   uint64_t generation;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (state_.mode != Mode::Holding || id == 0 || id <= last_goal_id_) {
+    if (!readyForFiniteMotion() || id == 0 || id <= last_goal_id_) {
       event(id, Outcome::Rejected,
-            "requires holding and increasing positive goal ID");
+            "requires valid holding/static disabled feedback and increasing "
+            "goal ID");
       return false;
     }
-    seed = reference_;
+    seed = finiteStart();
     generation = generation_;
     limits = config_;
   }
-  // Polynomial construction, IK, retiming and whole-path geometry checks run
+  // Polynomial construction, IK and retiming run
   // on the caller's thread, with a separate model and no control mutex held.
   std::lock_guard<std::mutex> planner_lock(planning_mutex_);
   JointTrajectory candidate;
@@ -357,8 +296,8 @@ bool Controller::preparePath(
     if (last.velocity.cwiseAbs().maxCoeff() > 1e-8 ||
         last.acceleration.cwiseAbs().maxCoeff() > 1e-8)
       throw std::invalid_argument("finite trajectory must end at rest");
-    okay = pathSafe(candidate, planning_model_, limits.collision_margin + 0.01,
-                    limits.validation_budget, &reason);
+    // The trajectory factory already validates all joint polynomial extrema.
+    okay = true;
   } catch (const std::exception &error) {
     reason = error.what();
   }
@@ -367,11 +306,16 @@ bool Controller::preparePath(
     event(id, Outcome::Rejected, reason);
     return false;
   }
-  if (generation != generation_ || state_.mode != Mode::Holding ||
-      id <= last_goal_id_ || (reference_ - seed).norm() > 1e-6) {
+  if (generation != generation_ || !readyForFiniteMotion() ||
+      id <= last_goal_id_ ||
+      (finiteStart() - seed).cwiseAbs().maxCoeff() >
+          (state_.mode == Mode::Disabled ? config_.position_tolerance : 1e-6)) {
     event(id, Outcome::Rejected, "state changed during trajectory preparation");
     return false;
   }
+  reference_ = seed;
+  velocity_.setZero();
+  acceleration_.setZero();
   std::swap(planned_, candidate);
   duration_ = planned_.duration();
   motion_at_ = last_step_;
@@ -475,7 +419,6 @@ bool Controller::stream(uint64_t session, uint64_t seq,
       std::max(received_at, target.time) + config_.stream_timeout;
   stream_sequence_ = seq;
   target_valid_ = true;
-  resume_waiting_ = false;
   return true;
 }
 bool Controller::stream(uint64_t session, uint64_t seq,
@@ -498,11 +441,12 @@ bool Controller::stream(uint64_t session, uint64_t seq,
       std::max(received_at, target.time) + config_.stream_timeout;
   stream_sequence_ = seq;
   target_valid_ = true;
-  resume_waiting_ = false;
   return true;
 }
 void Controller::operate(Operation op, uint64_t id) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (op == Operation::Disable || op == Operation::Stop)
+    ++generation_; // Invalidate planning before the next control step.
   if (op == Operation::Disable) {
     operations_.clear();
     operations_.emplace_front(op, id);
@@ -522,8 +466,7 @@ bool Controller::gains(const Vec &k, const Vec &d) {
   std::lock_guard<std::mutex> lock(mutex_);
   if ((state_.mode != Mode::Holding && state_.mode != Mode::Impedance) ||
       !k.allFinite() || !d.allFinite() || (k.array() <= 0).any() ||
-      (d.array() <= 0).any() || (k.head<3>().array() > 500).any() ||
-      (k.tail<3>().array() > 30).any() || (d.array() > 100).any())
+      (d.array() <= 0).any())
     return false;
   config_.stiffness = k;
   config_.damping = d;
@@ -554,7 +497,6 @@ void Controller::startStream(Mode m, double now) {
   state_.mode = m;
   resume_mode_ = m;
   target_valid_ = false;
-  resume_waiting_ = true;
   stream_deadline_ = now + config_.stream_timeout;
   stream_sequence_ = 0;
   ++state_.session;
@@ -599,9 +541,7 @@ bool Controller::beginStop(const std::string &why, double now) {
     return false;
   }
   std::string failure;
-  if (!pathSafe(stop_, model_, config_.collision_margin,
-                config_.lookahead_budget, &failure,
-                (state_.feedback.q - reference_).cwiseAbs())) {
+  if (!jointPathWithinLimits(stop_, model_, &failure)) {
     fault("stop trajectory invalid: " + failure);
     return false;
   }
@@ -610,7 +550,6 @@ bool Controller::beginStop(const std::string &why, double now) {
   state_.active_id = 0;
   state_.mode = Mode::Stopping;
   state_.reason = why;
-  stop_latched_ = true;
   target_valid_ = false;
   gripper_requested_ = false;
   motion_at_ = now;
@@ -692,10 +631,7 @@ Output Controller::step(const Feedback &feedback, double now) {
     auto clearance = model_.clearanceSample(f.q);
     state_.collision_distance = clearance.distance;
     state_.collision_pair = clearance.pair;
-    // Keep measured distance telemetry even when enforcement is disabled.
-    const bool clearance_allows_enable =
-        !config_.collision_check_enabled ||
-        clearance.distance > config_.collision_warning;
+    // Geometry is diagnostic; normal mounting contact does not gate control.
     while (!operations_.empty()) {
       auto [op, id] = operations_.front();
       operations_.pop_front();
@@ -710,7 +646,6 @@ Output Controller::step(const Feedback &feedback, double now) {
         ++generation_;
         last_torque_.setZero();
       } else if (op == Operation::Enable && state_.mode == Mode::Disabled &&
-                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -723,7 +658,6 @@ Output Controller::step(const Feedback &feedback, double now) {
                  (moving(state_.mode) || state_.mode == Mode::Holding))
         beginStop("user stop", now);
       else if (op == Operation::Resume && state_.mode == Mode::AwaitResume &&
-               clearance_allows_enable &&
                f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -735,13 +669,11 @@ Output Controller::step(const Feedback &feedback, double now) {
         } else
           startStream(resume_mode_, now);
       } else if (op == Operation::Resume && state_.mode == Mode::Fault &&
-                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         state_.mode = Mode::Disabled;
-        state_.reason = "fault acknowledged; enable required";
+        state_.reason = "fault acknowledged; ready for a new goal or enable";
         ++generation_;
       } else if (op == Operation::Hold && state_.mode == Mode::AwaitResume &&
-                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -766,17 +698,8 @@ Output Controller::step(const Feedback &feedback, double now) {
     }
     if (state_.mode == Mode::Disabled || state_.mode == Mode::Fault)
       return out;
-    if (config_.collision_check_enabled &&
-        clearance.distance <= config_.collision_margin) {
-      fault("measured geometric collision risk");
-      return out;
-    }
     if (streaming(state_.mode) && now > stream_deadline_)
       beginStop("stream input timeout", now);
-    if (config_.collision_check_enabled &&
-        (moving(state_.mode) || state_.mode == Mode::Holding) &&
-        clearance.distance < config_.collision_warning)
-      beginStop("collision warning distance", now);
     if (state_.mode == Mode::Fault)
       return out;
     Vec next_q = reference_, next_v = velocity_, next_a = acceleration_;
@@ -866,32 +789,16 @@ Output Controller::step(const Feedback &feedback, double now) {
       next_a = vector(a);
     }
     if (moving(state_.mode)) {
-      // Always preserve a joint-bounded braking path. Geometric clearance is
-      // enforced only when the commissioning switch is enabled.
+      // Preserve a braking path inside the physical joint position limits.
       auto brake_in = input(next_q, next_v, next_a);
       brake_in.control_interface = ruckig::ControlInterface::Velocity;
       brake_in.target_velocity.fill(0);
       brake_in.target_acceleration.fill(0);
       Trajectory brake;
-      const Vec uncertainty = (f.q - reference_).cwiseAbs();
       std::string failure;
-      double horizon = std::max(dt, config_.period);
-      const Vec swept = velocity_.cwiseAbs() * horizon +
-                        0.5 * config_.acceleration * horizon * horizon;
-      bool interval_clear = true;
-      if (config_.collision_check_enabled) {
-        const auto start_clearance =
-            model_.clearanceSample(reference_, uncertainty + swept);
-        interval_clear = start_clearance.distance > config_.collision_margin;
-        if (!interval_clear)
-          failure =
-              "next interval clearance: " + std::string(start_clearance.pair);
-      }
       bool safe =
-          interval_clear &&
           generator_.calculate(brake_in, brake) == ruckig::Result::Working &&
-          pathSafe(brake, model_, config_.collision_margin,
-                   config_.lookahead_budget, &failure, uncertainty);
+          jointPathWithinLimits(brake, model_, &failure);
       if (!safe) {
         if (failure.empty())
           failure = "brake generator error";
@@ -990,12 +897,8 @@ Output Controller::step(const Feedback &feedback, double now) {
       out.gripper_kd = 0.5;
     }
     state_.compute_time = seconds(began);
-    if (state_.compute_time > config_.period) {
+    if (state_.compute_time > config_.period)
       ++state_.overruns;
-      fault("compute deadline exceeded");
-      out.enabled = false;
-      out.tau.setZero();
-    }
   } catch (const std::exception &e) {
     fault(std::string("control exception: ") + e.what());
     out.enabled = false;

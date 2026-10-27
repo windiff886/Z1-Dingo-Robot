@@ -12,22 +12,22 @@
 
 ## 2. 命令
 
-几何净空检查由启动参数 `collision_check_enabled` 控制。原生 C++ 默认 `true`；当前共享 `z1_bringup/config/control.yaml` 为本次双臂调试显式设为 `false`。关闭时，下表中的几何间距条件、路径碰撞拒绝和几何预警/故障停止不生效；关节限位、运动导数限制、力矩限制、反馈/电机保护以及受控制动保留。`status.collision_distance/pair` 仍报告实际模型计算值，不表示几何保护已启用。恢复 `true` 需重启控制器。
+几何距离只作诊断：`status.collision_distance/pair` 不参与使能、目标接受、预警停止或 Fault 判定。已删除净空开关、距离阈值和几何采样预算，关节限位、运动导数限制、力矩限制、反馈/电机检查及受控制动仍保留。有限运动可从反馈有效且静止的 Disabled 直接开始，规划以实测位置为起点，验证失败不使能输出；Holding 也可直接接收。运动中禁止抢占，停止和故障仍需显式处理。
 
 所有类型位于 [z1_msgs/msg](z1_msgs/msg)。
 
 | Topic | 消息 / 字段 | 约束 |
 | --- | --- | --- |
-| `joint_goal` | JointGoal：command_id、positions[6]、speed_scale | ID 正数、递增；speed_scale `(0,1]`；Holding 接收 |
+| `joint_goal` | JointGoal：command_id、positions[6]、speed_scale | ID 正数、递增；speed_scale `(0,1]`；Disabled/Holding 接收 |
 | `pose_goal` | PoseGoal：command_id、pose、speed_scale | 同上；指定基座 frame_id；局部 IK 失败则拒绝 |
-| `joint_trajectory` | JointTrajectory：command_id、retime、points[] | Holding 接收完整有限轨迹；点含 time_from_start、q/v/a 和导数有效标志；默认保持时间 |
-| `joint_waypoints` | JointWaypoints：command_id、waypoints[].positions[6]、speed_scale | Holding；自动安排时间和内部过点速度，首尾停止 |
-| `linear_path` | LinearPath：command_id、poses[]、speed_scale、blend_radius | Holding；基座 frame_id；单点为 MoveL，多点可停车或圆滑连续通过 |
+| `joint_trajectory` | JointTrajectory：command_id、retime、points[] | Disabled/Holding 接收完整有限轨迹；点含 time_from_start、q/v/a 和导数有效标志；默认保持时间 |
+| `joint_waypoints` | JointWaypoints：command_id、waypoints[].positions[6]、speed_scale | Disabled/Holding；自动安排时间和内部过点速度，首尾停止 |
+| `linear_path` | LinearPath：command_id、poses[]、speed_scale、blend_radius | Disabled/Holding；基座 frame_id；单点为 MoveL，多点可停车或圆滑连续通过 |
 | `joint_stream` | JointStream：session_id、sequence、positions[6] | JointStream 模式；token 等于 status，会话内 sequence 递增 |
 | `pose_stream` | PoseStream：session_id、sequence、pose | PoseStream 或 Impedance 模式；基座 frame_id；连续参考，不承诺到达每帧 |
 | `joint_reference` | JointReference：session_id、sequence、target_time、positions/velocities/accelerations[6]、has_velocity/has_acceleration | JointStream 模式；时间插值的动态参考；可排入短时未来路点 |
 | `pose_reference` | CartesianReference：session_id、sequence、target_time、pose、velocity(Twist)、acceleration(Accel)、has_velocity/has_acceleration | PoseStream 或 Impedance 模式；位姿及所有导数均在基座系，导数定义于 TCP |
-| `impedance_gains` | ImpedanceGains：command_id、stiffness[6]、damping[6] | Holding 或 Impedance；顺序 XYZ/旋转XYZ，对角正值；平移 K≤500 N/m，旋转 K≤30 Nm/rad，D≤100；阻抗中一阶平滑更新 |
+| `impedance_gains` | ImpedanceGains：command_id、stiffness[6]、damping[6] | Holding 或 Impedance；顺序 XYZ/旋转XYZ，有限对角正值；阻抗中一阶平滑更新 |
 | `gripper_goal` | GripperGoal：command_id、position | Holding、有夹爪，[-1,0] rad；负值打开；只返回接收/拒绝 |
 | `control` | ControlCommand：command_id、operation | 操作码见下表 |
 
@@ -35,16 +35,16 @@
 
 | 码 | 名称 | 行为 |
 | --- | --- | --- |
-| 0 | ENABLE | Disabled、有效且静止、距离大于警告间距 → Holding |
+| 0 | ENABLE | Disabled、有效且静止 → Holding（可选的单独保持操作） |
 | 1 | DISABLE | 直接被动输出；可从任何状态请求，不代表硬件急停确认 |
 | 2 | STOP | 从保持/运动生成受控停止；清除旧目标，停止后 AwaitResume |
-| 3 | RESUME | AwaitResume → 原流式模式及新会话，或有限运动停止后 → Holding；Fault → Disabled，需再次使能 |
+| 3 | RESUME | AwaitResume → 原流式模式及新会话，或有限运动停止后 → Holding；Fault → Disabled，可提交新有限目标或单独使能 |
 | 4 | JOINT_STREAM | Holding → JointStream，新会话，等待新目标 |
 | 5 | POSE_STREAM | Holding → PoseStream，新会话，等待新目标 |
 | 6 | IMPEDANCE | Holding → Impedance，新会话；参考从实际 TCP 开始 |
-| 7 | HOLD | AwaitResume → Holding，显式结束旧模式；有效且静止、几何间距足够才允许 |
+| 7 | HOLD | AwaitResume → Holding，显式结束旧模式；有效且静止才允许 |
 
-模式不能在运动中直接抢占；先 STOP，等 AwaitResume，HOLD，再选择其他模式。Fault 不自动清除；无效反馈和碰撞条件未解除时 RESUME 无效。STOP/DISABLE 不因 ROS 命令时间戳错误而被拒绝。
+模式不能在运动中直接抢占；先 STOP，等 AwaitResume，HOLD，再选择其他模式。Fault 不自动清除；反馈仍无效时 RESUME 无效。STOP/DISABLE 不因 ROS 命令时间戳错误而被拒绝。
 
 ## 3. 状态与结果
 
@@ -67,10 +67,10 @@
 # 启动双臂，以下命令操作左臂
 roslaunch z1_bringup arm.launch
 
-# 反馈有效、现场姿态静止且间距足够时使能
+# 反馈有效且现场姿态静止时，可单独使能进入保持
 rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 1, operation: 0}'
 
-# 等待 Holding 后，从 joint_states 或 tcp_pose 反馈构造对应的有限目标。
+# 从 joint_states 或 tcp_pose 反馈构造有限目标；静止 Disabled 可直接接收。
 # 不假定真机初始姿态；关节2/3需要满足其非对称限位。
 
 # 流式模式，先读取 status.session_id，之后发布带当前 stamp 和递增 sequence 的目标
@@ -90,13 +90,13 @@ rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 5, operat
 
 `has_velocity=false` 时根据相邻点估计并滤波速度；省略加速度时同样估计加速度。提供加速度必须同时提供速度。关节单位为 rad/s、rad/s²；笛卡尔为 m/s、rad/s、m/s²、rad/s²，角速度和角加速度均是基座系向量，不能填写欧拉角导数。两端提供加速度时使用五次 Hermite 插值，否则为三次；姿态在 SO(3) 上插值并转换旋转导数。
 
-默认前瞻 30 ms、最多外推 100 ms、导数估计滤波时间常数 10 ms；外推期后保持末位置并请求零导数，流超时仍进入停止流程。参数分别为 `reference_preview`、`reference_extrapolation`、`reference_velocity_filter`；最大未来范围为 `reference_horizon`。这些时间用于生成期望参考，实际轨迹还受 v/a/jerk、关节及几何约束，不保证严格按时经过每个路点。阻抗增益平滑时间常数为 `impedance_gain_time_constant`，默认 100 ms。
+默认前瞻 30 ms、最多外推 100 ms、导数估计滤波时间常数 10 ms；外推期后保持末位置并请求零导数，流超时仍进入停止流程。参数分别为 `reference_preview`、`reference_extrapolation`、`reference_velocity_filter`；最大未来范围为 `reference_horizon`。这些时间用于生成期望参考，实际轨迹还受 v/a/jerk 及关节位置约束，不保证严格按时经过每个路点。阻抗增益平滑时间常数为 `impedance_gain_time_constant`，默认 100 ms。
 
 ### 预计算定时轨迹和连续路径
 
-`joint_trajectory` 接收完整有限计划。`time_from_start` 为执行开始后的秒数，使用 ROS `duration`；它与流式消息的绝对 `target_time` 不同。首点时间可为正，此时自动补入当前参考和零导数的 t=0 点；首点为零时必须匹配当前静止参考。点时间严格递增，提供加速度必须同时提供速度。首尾必须静止，完成后进入 Holding。所有有限运动共用递增 command_id，不使用流式 session 或续期超时。
+`joint_trajectory` 接收完整有限计划。`time_from_start` 为执行开始后的秒数，使用 ROS `duration`；它与流式消息的绝对 `target_time` 不同。首点时间可为正，此时自动补入当前起点和零导数的 t=0 点；首点为零时必须匹配该静止起点。Disabled 使用实测位置，Holding 使用保持参考。点时间严格递增，提供加速度必须同时提供速度。首尾必须静止，完成后进入 Holding。所有有限运动共用递增 command_id，不使用流式 session 或续期超时。
 
-相邻点构成 C2 五次 Hermite 轨迹。显式给出的 v/a 被用于端点条件；省略内部速度时根据相邻斜率估计，反向处取零；省略加速度时取零。`retime=false` 保持原时间及显式导数，任何分段内部的关节位置或 v/a/jerk 超限都拒绝；`retime=true` 允许一次全局时间伸缩，保持关节路径形状，v/a/jerk 分别按伸缩倍率的一、二、三次方降低。重定时不能修复越过位置限位或碰撞的路径。
+相邻点构成 C2 五次 Hermite 轨迹。显式给出的 v/a 被用于端点条件；省略内部速度时根据相邻斜率估计，反向处取零；省略加速度时取零。`retime=false` 保持原时间及显式导数，任何分段内部的关节位置或 v/a/jerk 超限都拒绝；`retime=true` 允许一次全局时间伸缩，保持关节路径形状，v/a/jerk 分别按伸缩倍率的一、二、三次方降低。重定时不能修复越过位置限位的路径。
 
 `joint_waypoints` 自动补入当前参考，不要求上游提供时间。内部同方向关节路点通常以非零速度通过，反向或相关轴停顿可能需要减速/停止；不能承诺任意路径都不停。`speed_scale=s` 对基准 v/a/jerk 分别施加 s、s²、s³，随后验证并全局伸缩。当前时间安排并非全局时间最优。
 
@@ -106,9 +106,9 @@ rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 5, operat
 
 原生 `LinearPathOptions` 默认平移误差阈值 0.1 mm、旋转 1 mrad。准备阶段在每个关节样条段的 9 个时间点检查 FK 与目标路径，超差则加密，最多 5 轮；这些是数值拟合验收阈值，不是连续区间的解析误差上界，也不代表真实机械臂精度。路径不可达、连续 IK 分支断开或拟合仍超差时拒绝，不自动寻找绕障路线。原 `pose_goal` 保持终点 IK 后关节运动的语义。
 
-规划、拟合、全段几何检查均在提交线程完成，不持有控制锁。ROS 有限运动使用独立的单线程规划回调队列，操作和流式消息使用普通回调线程；原生执行按 ROS 配置为 250 Hz。STOP/DISABLE 会使尚在准备的旧计划失效。已接受路径按单调时钟直接采样，不再经过流式 Ruckig 前瞻；在线制动和几何检查继续使用同一控制内核。
+规划、拟合和关节极值检查均在提交线程完成，不持有控制锁。ROS 有限运动使用独立的单线程规划回调队列，操作和流式消息使用普通回调线程；原生执行按 ROS 配置为 250 Hz。STOP/DISABLE 请求立即使尚在准备的旧计划失效。已接受路径按单调时钟直接采样，不再经过流式 Ruckig 前瞻；在线制动仍验证关节边界。
 
-以下原生调用均需从 Holding 发起，等待上一运动结束后再提交下一条：
+以下原生调用可从静止 Disabled 或 Holding 发起，等待上一运动结束后再提交下一条：
 
 ```cpp
 z1::TrajectoryPoint end;
@@ -171,7 +171,7 @@ pub.publish(m)
 
 默认 [control.yaml](z1_bringup/config/control.yaml) 中所有向量可逐臂覆盖。配置先加载再由 launch 覆盖地址、前缀与后端。双臂可用不同配置、模型/描述文件和基座系重力；底层控制代码相同。
 
-ROS 默认 `period=0.004`、`receive_budget_us=3000`、`lookahead_budget=0.0005`。接收和在线检查串行执行；ROS 适配器要求两项预算之和小于周期，余量供其他控制计算和调度使用。这些是时间预算，不代表每轮都会用满。有限目标的离线规划预算不占控制锁。
+ROS 默认 `period=0.004`、`receive_budget_us=3000`。ROS 适配器要求接收预算小于控制周期；当前配置留出约 1 ms 给控制计算和调度。这是预算，不代表实测保证。离线规划不占控制锁。
 
 `control_cpu=-1` 表示不指定 CPU；其他值为部署机上的逻辑 CPU 编号，13700H 应按实际拓扑选择性能核。`realtime_priority=0` 沿用默认调度，正值请求该控制线程使用 SCHED_FIFO，所需操作系统权限由部署环境提供。原生构造可传入 `RuntimeOptions{priority, cpu}`；`Runtime::timing()` 返回统计，持续时间单位为微秒。
 
@@ -186,7 +186,7 @@ ROS `status` 新增字段：
 | `realtime_error` / `cpu_affinity_error` | 线程设置错误码；0 表示无错误，默认不请求设置时也为0 |
 | `trajectory_duration` / `trajectory_time_scale` | 最近接受的有限轨迹时长（秒）/ 全局时间伸缩倍率；进入流式模式重置为 0 / 1 |
 
-计数和最大值在 Runtime 启动时清零。`overruns` 仍表示控制计算超期，与漏过调度时隙分别统计。超期后运行循环跳过已过期的时隙，避免突发追赶；流式参考按实际经过时间推进。旧 MCU 接口仍为发送上一轮输出后接收反馈，新反馈生成的输出在下一轮事务发送。
+计数和最大值在 Runtime 启动时清零。`overruns` 表示控制计算超期，与漏过调度时隙分别统计；单次计算超期只计数，不切断有效输出。超过反馈有效期的控制间隔仍进入 Fault。超期后运行循环跳过已过期的时隙，避免突发追赶；流式参考按实际经过时间推进。旧 MCU 接口仍为发送上一轮输出后接收反馈，新反馈生成的输出在下一轮事务发送。
 
 固定结构格式：
 

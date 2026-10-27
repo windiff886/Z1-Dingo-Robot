@@ -20,6 +20,7 @@ bool feedback_valid
 bool new_feedback
 float64 feedback_age
 bool has_gripper
+# Model distance diagnostics only; these fields do not gate motion.
 float64 collision_distance
 string collision_pair
 float64 compute_time

@@ -13,13 +13,11 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 启动命令无需附加参数。此命令同时启动左右机械臂控制器、连接各自的真实 MCU，并启动整机显示和目标发送节点。运行选项从 YAML 读取，由本入口统一发布整机模型和 TF。即使独立机械臂配置中的 `publish_description` 设为 `true`，本入口也不会启动单臂模型或 TF 发布器。
 
-双臂通信参数来自 [communication.yaml](../z1_bringup/config/communication.yaml)，需按实际设备配置 IP 和本地端口。连接成功后机械臂处于 Disabled，通过界面菜单使能后才进入 Holding。
+双臂通信参数来自 [communication.yaml](../z1_bringup/config/communication.yaml)，需按实际设备配置 IP 和本地端口。连接成功后机械臂处于 Disabled；首条有效目标从实测位置直接开始执行，无需先通过菜单使能。
 
 当前控制周期为 250 Hz，UDP 接收预算为 3 ms，实测依据和适用范围见 [通信节拍说明](../COMMUNICATION_TIMING.md)。
 
-本次运动调试在共享 [control.yaml](../z1_bringup/config/control.yaml) 中设置 `collision_check_enabled: false`，对左右两臂关闭几何净空保护：不以连杆/已配置障碍物距离限制使能、停止、目标轨迹或制动路径。关节位置限位、速度/加速度/jerk、力矩及变化率、反馈时效、电机错误和受控制动仍保留。启动日志会提示保护关闭，RViz 状态文字显示 `GEOMETRIC CHECKS OFF`；距离数值仍作为诊断发布。此配置也影响独立 `arm.launch` 入口。
-
-恢复净空保护：将 `collision_check_enabled` 改回 `true` 并重启控制器和 RViz。本开关仅在启动时读取，不会因编辑 YAML 立即改变正在运行的控制器。原生 C++ `Config` 默认仍为 `true`。
+几何距离仅作诊断；已删除固定净空对使能、运动、恢复和制动的强制拦截，以及对应开关和阈值。正常折叠贴合可以直接保持和运动。关节位置、速度/加速度/jerk、输出力矩及变化率、反馈有效性、电机故障和受控制动约束保留。详见 [控制约束审核](../SAFETY_AUDIT.md)。
 
 ## 这个启动文件做了什么
 
@@ -52,13 +50,13 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 默认 TCP 相对各臂 `link06` 沿 X 正方向平移 0.051 m，姿态相同。目标沿用 SDK 的有限位姿运动接口：先求终点逆解，再执行关节轨迹；TCP 中间路径由该关节轨迹决定。
 
-默认拖动只更新手柄，使用右键菜单 `Send target once` 显式发送一次目标。发送要求对应臂处于 Holding、反馈有效且新鲜、TF 可用，并且没有等待结束的旧目标。执行过程中再次提交会被拒绝，目标不排队。IK、轨迹生成、力矩控制和启用时的碰撞检查由 Z1 SDK 完成，具体接口见 [INTERFACES.md](../INTERFACES.md)。
+拖动编辑目标，松开鼠标提交一次目标；右键菜单 `Send target once` 可再次提交。发送节点只负责目标格式和 TF 转换，不重复拦截控制器状态或等待旧结果回执。控制器统一判断反馈、模式、IK、关节轨迹和力矩约束：Disabled 下有效且静止时直接执行首条目标，运动中提交会拒绝，Fault 和 AwaitResume 仍需先处理对应状态。具体接口见 [INTERFACES.md](../INTERFACES.md)。
 
 ### 4. 打开 RViz
 
 启动 RViz，加载 [rviz/tcp_test.rviz](rviz/tcp_test.rviz)，显示网格、随反馈更新的整机模型、TCP 目标手柄和控制状态文字。
 
-手柄表示期望目标，机器人模型表示反馈状态。完整整机模型用于显示，SDK 的几何检查仍按单臂模型及配置的固定结构执行，显示模型本身不会增加双臂互碰或整机绕障能力。
+手柄表示期望目标，机器人模型表示反馈状态。完整整机模型用于显示，SDK 的几何距离诊断按单臂模型及配置的固定结构计算，显示模型本身不会增加双臂互碰或整机绕障能力。
 
 ### 5. 启动双臂控制器
 
@@ -68,17 +66,15 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 ## 界面操作
 
-初次调试先在 Disabled 下检查模型姿态、关节反馈和 TCP 手柄。进入 Holding 要求有效反馈和关节速度小于 `velocity_tolerance`。当 `collision_check_enabled: true` 时，还要求模型净空大于 `collision_warning`（当前 0.03 m）；本次配置为 `false`，允许从正常贴合的初始姿态进入保持，程序不会根据几何间隙阻止接触或碰撞。
+控制器启动后保持 Disabled，直到收到明确目标或 ENABLE；打开界面不会自行建立保持力矩。首次有限目标要求反馈有效且各轴速度小于 `velocity_tolerance`，不要求任何几何间距。
 
-显示的 TCP、逆解和几何距离都基于当前反馈角，绝对末端精度需要独立验证。首次运动先验证单臂保持稳定，再进行小幅功能测试；另一臂保持 Disabled。TCP 目标使用关节空间轨迹，手柄的小幅位移不保证每个关节都只移动小角度，尤其在初始折叠或奇异附近需要核对生成的目标。
+显示的 TCP、逆解和几何距离都基于当前反馈角，绝对末端精度需要独立验证。TCP 目标使用关节空间轨迹，手柄的小幅位移不保证每个关节都只移动小角度。
 
-1. 等待对应臂的 TCP 手柄出现。没有手柄时，检查控制器连接、有效反馈和 TF；状态文字会提示 `FEEDBACK STALE / INVALID`。
-2. 右键手柄中心球，选择 `ENABLE (Disabled -> Holding)`，等待状态变为 Holding。
-3. 拖动平移箭头或旋转圆环编辑目标，再从右键菜单选择 `Send target once`，默认速度比例为 `0.05`。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
-4. 需要停止时选择 `STOP`。进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 将手柄重置到当前实测位置。
-5. Fault 原因处理后，选择 `Acknowledge FAULT (then ENABLE)`；进入 Disabled 后重新使能。`DISABLE (passive output)` 用于失能。
-
-默认 `send_on_release: false`，拖动只编辑目标，使用右键菜单 `Send target once` 显式发送。改为 `true` 后，松开鼠标会提交目标。
+1. 等待对应臂的 TCP 手柄出现；初始化需要有效反馈及 TF。状态文字会提示 `FEEDBACK STALE / INVALID`。
+2. 拖动平移箭头或旋转圆环，松开鼠标提交目标，默认速度比例为 `0.05`。无需先 ENABLE。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
+3. 需要只保持时，可选择 `ENABLE (Disabled -> Holding)`；需要停止时选择 `STOP`。
+4. 进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 重置手柄。
+5. Fault 原因处理后，选择 `Acknowledge FAULT`；进入 Disabled 后可直接提交新目标。`DISABLE (passive output)` 用于失能。
 
 ## YAML 配置
 
@@ -86,18 +82,17 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 | 文件 | 内容 |
 | --- | --- |
-| [config/rviz_tcp_test.yaml](config/rviz_tcp_test.yaml) | 目标发送方式、速度比例和反馈时效 |
+| [config/rviz_tcp_test.yaml](config/rviz_tcp_test.yaml) | 速度比例和显示反馈时效 |
 | [z1_bringup/config/communication.yaml](../z1_bringup/config/communication.yaml) | 两臂 MCU IP、本地 UDP 端口和接收预算；`publish_description` 仅用于独立启动机械臂，默认 `false` |
-| [z1_bringup/config/control.yaml](../z1_bringup/config/control.yaml) | SDK 控制周期、运动限制、增益和碰撞参数 |
+| [z1_bringup/config/control.yaml](../z1_bringup/config/control.yaml) | SDK 控制周期、运动限制、增益和几何诊断配置 |
 
 测试配置加载到 `/rviz_tcp_test` 的私有参数空间：
 
 ```yaml
-send_on_release: false
 speed_scale: 0.05
 telemetry_timeout: 0.3
 ```
 
-`send_on_release` 控制松开鼠标后是否发送目标；`speed_scale` 为有限位姿目标的速度比例，范围 `(0,1]`；`telemetry_timeout` 单位为秒，限制状态和 TCP 消息的时龄及接收间隔。启动后修改这些值，需要重启测试节点才生效。
+`speed_scale` 为有限位姿目标的速度比例，范围 `(0,1]`；`telemetry_timeout` 单位为秒，用于手柄初始化、实测位置重置及显示状态的时效判定；命令接受由控制器使用自身反馈判断。启动后修改这些值，需要重启测试节点才生效。
 
 本包的 ROS 依赖见 [package.xml](package.xml)。

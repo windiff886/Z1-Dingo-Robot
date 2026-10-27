@@ -10,6 +10,8 @@ namespace z1 {
 class Controller {
 public:
   Controller(ModelConfig, Config);
+  // Finite goals also start from valid, stationary Disabled feedback.
+  // Invalid plans leave Disabled output passive; active motion is not preempted.
   bool goal(uint64_t, const Vec &, double speed = 1);
   bool poseGoal(uint64_t, const Pose &, double speed = 1);
   // Times are offsets from execution start. A first point after t=0 gets an
@@ -43,15 +45,13 @@ private:
                                                        const Config &)> &,
                    Mode, const Pose *endpoint = nullptr);
   Input input(const Vec &, const Vec &, const Vec &) const;
-  bool pathSafe(const Trajectory &, Model &, double margin, double budget,
-                std::string *failure, const Vec &uncertainty = Vec::Zero());
-  bool pathSafe(const JointTrajectory &, Model &, double margin, double budget,
-                std::string *failure, const Vec &uncertainty = Vec::Zero());
+  bool readyForFiniteMotion() const;
+  Vec finiteStart() const;
+  bool jointPathWithinLimits(const Trajectory &, Model &, std::string *failure);
   bool beginStop(const std::string &, double);
   void fault(const std::string &);
   void event(uint64_t, Outcome, const std::string &);
   void startStream(Mode, double);
-  ModelConfig model_config_;
   Config config_;
   Model model_, planning_model_;
   mutable std::mutex mutex_;
@@ -71,8 +71,7 @@ private:
       last_step_{}, gripper_target_{};
   uint64_t stream_sequence_{}, generation_{};
   uint64_t last_goal_id_{};
-  bool target_valid_{}, stop_latched_{}, resume_waiting_{},
-      gripper_requested_{};
+  bool target_valid_{}, gripper_requested_{};
   Mode resume_mode_{Mode::JointStream};
   Trajectory finite_, stop_;
   JointTrajectory planned_;

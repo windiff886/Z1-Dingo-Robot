@@ -11,14 +11,14 @@ source devel/setup.bash
 roslaunch z1_bringup arm.launch
 ```
 
-左臂命名空间为 `/left_arm`，右臂为 `/right_arm`。两臂各自连接 MCU，启动后处于 Disabled；通过各臂的 `control` Topic 发送 ENABLE，进入 Holding 后接收运动目标。
+左臂命名空间为 `/left_arm`，右臂为 `/right_arm`。两臂各自连接 MCU，启动后处于 Disabled；有效且静止时，首条有限运动目标会从实测位置直接开始执行，无需先发 ENABLE。也可单独 ENABLE 进入 Holding。
 
 ## 配置
 
 | 文件 | 内容 |
 | --- | --- |
 | [communication.yaml](src/z1_ros/z1_bringup/config/communication.yaml) | 各臂 IP、本地 UDP 端口、接收预算 |
-| [control.yaml](src/z1_ros/z1_bringup/config/control.yaml) | 控制周期、速度/加速度/jerk、力矩、增益、容差及碰撞检查参数 |
+| [control.yaml](src/z1_ros/z1_bringup/config/control.yaml) | 控制周期、速度/加速度/jerk、力矩、增益、容差及几何诊断配置 |
 | [calibration.yaml](src/z1_ros/z1_control/config/calibration.yaml) | 标定对象、静止检查、回执超时和零位验证容差 |
 | [z1_control.urdf](src/z1_ros/z1_description/urdf/z1_control.urdf) | 六轴运动学、质量/惯性、工具坐标系及碰撞几何 |
 

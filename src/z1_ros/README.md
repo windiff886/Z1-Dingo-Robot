@@ -22,9 +22,9 @@ roslaunch z1_bringup arm.launch
 
 ### 1. 加载双臂运行配置
 
-读取 [通信配置](z1_bringup/config/communication.yaml)，分别设置 `/left_arm/controller` 和 `/right_arm/controller` 的连接参数。两个控制节点各自加载同一份 [控制配置](z1_bringup/config/control.yaml)，包括控制周期、反馈超时、速度/加速度/jerk、力矩、控制增益、到达容差和碰撞检查参数。
+读取 [通信配置](z1_bringup/config/communication.yaml)，分别设置 `/left_arm/controller` 和 `/right_arm/controller` 的连接参数。两个控制节点各自加载同一份 [控制配置](z1_bringup/config/control.yaml)，包括控制周期、反馈超时、速度/加速度/jerk、力矩、控制增益、到达容差和几何诊断配置。
 
-本次调试配置为 `collision_check_enabled: false`，双臂的几何净空使能限制、路径检查和碰撞预警/故障停止均关闭，距离仍作诊断发布；关节、运动、力矩与反馈保护保留。启动日志和 RViz 会提示关闭状态。恢复该参数为 `true` 并重启即可重新启用净空保护，详见 [RViz 调试说明](unidingo_rviz_test/README.md)。
+几何距离仅用于诊断，不再限制使能、目标轨迹、保持、恢复或制动；正常折叠接触不会被固定净空阈值拦截。关节、运动、力矩与反馈约束保留。删除项及保留理由见 [控制约束审核](SAFETY_AUDIT.md)。
 
 左臂命名空间为 `/left_arm`，关节及 TF 前缀为 `left_`；右臂命名空间为 `/right_arm`，前缀为 `right_`。
 
@@ -32,7 +32,7 @@ roslaunch z1_bringup arm.launch
 
 独立启动时，只有将 `communication.yaml` 中的 `publish_description` 设为 `true`，才通过 Xacro 展开 [Z1 描述模型](z1_description/urdf/z1.urdf.xacro)，分别写入 `/left_arm/robot_description` 和 `/right_arm/robot_description`，提供带各自前缀的连杆、关节和工具坐标系。默认关闭，使用整机显示入口时由整机提供描述模型。
 
-无论该开关如何设置，两个控制节点始终读取 [控制 URDF](z1_description/urdf/z1_control.urdf)，使用其中的运动学、关节限位、质量、惯性和碰撞几何，完成末端位姿计算、逆运动学、动力学和距离检查。
+无论该开关如何设置，两个控制节点始终读取 [控制 URDF](z1_description/urdf/z1_control.urdf)，使用其中的运动学、关节限位、质量、惯性和碰撞几何，完成末端位姿计算、逆运动学、动力学和距离诊断。
 
 末端目标分别相对 `left_link00` 和 `right_link00` 表达。默认 TCP 为 `tool`，位于 `link06` 沿 X 正方向 0.051 m，姿态相同；描述模型中对应 `left_tool` 和 `right_tool`。
 
@@ -71,7 +71,7 @@ ROS 配置的控制周期默认 4 ms（250 Hz），UDP 接收预算为 3 ms，�
 | `joint_states` / `tcp_pose` | 关节反馈 / 由有效关节反馈计算的 TCP 位姿 |
 | `status` / `result` | 控制状态、反馈时龄和周期统计 / 命令接收及执行结果 |
 
-启动后，两臂分别处于 Disabled。向对应的 `control` Topic 发送 ENABLE 后，控制器以当前关节反馈建立保持参考，进入 Holding，再接收运动目标。两臂分别管理使能、运动和停止状态。
+启动后，两臂分别处于 Disabled。反馈有效且静止时，首条有限运动目标从当前实测位置规划并直接执行，无需额外 ENABLE；无效目标不会使能输出。也可向 `control` 发送 ENABLE，仅进入 Holding。两臂分别管理运动和停止状态。
 
 有限关节目标使用 Ruckig 生成关节轨迹；末端位姿目标先求逆运动学，再生成关节轨迹；末端直线路径通过笛卡尔插值和连续逆运动学生成。持续目标使用流式跟踪，笛卡尔阻抗以目标位姿为平衡参考。命令字段、时间戳、坐标系和操作码见 [接口契约](INTERFACES.md)。
 

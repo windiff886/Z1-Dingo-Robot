@@ -34,9 +34,8 @@ public:
   // Lower distance bound over independent joint displacements about q.
   Clearance clearance(const Vec &q, const Vec &joint_displacement);
   // The pair view remains valid for this Model's lifetime.
-  ClearanceSample clearanceSample(
-      const Vec &q, const Vec &joint_displacement = Vec::Zero());
-  double distanceMotionBound(const Vec &joint_motion) const;
+  ClearanceSample clearanceSample(const Vec &q,
+                                  const Vec &joint_displacement = Vec::Zero());
 
 private:
   struct Impl;

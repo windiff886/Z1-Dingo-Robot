@@ -103,8 +103,8 @@ int main(int argc, char **argv) {
     sf.sequence++;
     sf.received_at = 1.004;
     guarded.step(sf, 1.004);
-    require(!guarded.goal(1, to, 0.3),
-            "unsafe intermediate trajectory accepted");
+    require(guarded.goal(1, to, 0.3),
+            "diagnostic geometry blocked a joint-valid trajectory");
     Fixture a(argv[1]);
     a.enable();
     Vec goal = q;
@@ -420,10 +420,11 @@ int main(int argc, char **argv) {
     }
     require(threw && !factory_called,
             "transport opened before configuration validation");
-    std::cout << "PASS: model, IK, dynamics, fixed collision, finite goals, "
-                 "dynamic references and limits, online impedance gains, "
-                 "stop priority, session timeout, feedback failure "
-                 "and instance isolation\n";
+    std::cout
+        << "PASS: model, IK, dynamics, distance diagnostics, finite goals, "
+           "dynamic references and limits, online impedance gains, "
+           "stop priority, session timeout, feedback failure "
+           "and instance isolation\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << "FAIL: " << e.what() << '\n';

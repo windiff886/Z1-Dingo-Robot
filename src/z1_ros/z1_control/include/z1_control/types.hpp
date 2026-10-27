@@ -64,18 +64,13 @@ struct ModelConfig {
   std::vector<FixedBox> fixed_boxes;
 };
 struct Config {
-  // Disable only for supervised commissioning; joint/dynamic limits remain.
-  bool collision_check_enabled{true};
   double period{0.002}, feedback_timeout{0.08}, stream_timeout{0.2};
   double reference_preview{0.03}, reference_extrapolation{0.1},
       reference_velocity_filter{0.01}, reference_horizon{0.5},
       impedance_gain_time_constant{0.1};
-  double collision_margin{0.008}, collision_warning{0.03};
   double position_tolerance{0.015}, velocity_tolerance{0.03},
       settle_timeout{3.0};
   double tcp_position_tolerance{0.005}, tcp_orientation_tolerance{0.025};
-  double validation_budget{2.0}, lookahead_budget{0.0005};
-  unsigned max_collision_samples{20000};
   Vec velocity{Vec::Constant(0.8)}, acceleration{Vec::Constant(1.5)},
       jerk{Vec::Constant(8)};
   Vec torque{(Vec() << 20, 30, 20, 12, 8, 8).finished()},

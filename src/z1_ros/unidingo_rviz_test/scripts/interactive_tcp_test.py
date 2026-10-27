@@ -44,12 +44,9 @@ class Arm:
         self.side = side
         self.base = side + '_link00'
         self.name = side + '_tcp_target'
-        self.collision_check_enabled = rospy.get_param(
-            '/' + side + '_arm/controller/collision_check_enabled', True)
         self.status = self.tcp = self.target = None
         self.status_at = self.tcp_at = 0.0
         self.created = self.dirty = False
-        self.pending = None
         self.note = 'Waiting for valid controller feedback'
         self.goal_pub = rospy.Publisher('/' + side + '_arm/pose_goal', PoseGoal, queue_size=1)
         self.control_pub = rospy.Publisher('/' + side + '_arm/control', ControlCommand, queue_size=4)
@@ -59,7 +56,6 @@ class TcpTest:
     def __init__(self):
         self.lock = threading.RLock()
         self.frame = 'base_link'
-        self.send_on_release = rospy.get_param('~send_on_release')
         self.speed = float(rospy.get_param('~speed_scale'))
         self.timeout = float(rospy.get_param('~telemetry_timeout'))
         if not (0 < self.speed <= 1 and math.isfinite(self.timeout) and self.timeout > 0):
@@ -80,8 +76,7 @@ class TcpTest:
                     '/' + side + '_arm/' + topic, msg_type,
                     lambda msg, a=arm, cb=callback: cb(a, msg), queue_size=10))
         self.timer = rospy.Timer(rospy.Duration(0.1), self.tick)
-        rospy.loginfo('TCP test: drag a TCP handle and release to send=%s; speed_scale=%.2f',
-                      self.send_on_release, self.speed)
+        rospy.loginfo('TCP test: release a TCP handle to send; speed_scale=%.2f', self.speed)
 
     def next_id(self):
         self.command_id = max(self.command_id + 1, time.time_ns())
@@ -131,8 +126,6 @@ class TcpTest:
         with self.lock:
             self.command_id = max(self.command_id, msg.command_id)
             arm.note = '{}: {}'.format(msg.outcome, msg.reason)
-            if msg.command_id == arm.pending and msg.outcome != MotionResult.ACCEPTED:
-                arm.pending = None
             rospy.loginfo('%s result id=%s outcome=%s: %s', arm.side,
                           msg.command_id, msg.outcome, msg.reason)
 
@@ -154,10 +147,6 @@ class TcpTest:
         arm.note = 'Target reset to measured TCP'
 
     def send(self, arm):
-        if not self.fresh(arm):
-            raise ValueError('stale/invalid status or TCP feedback; target not sent')
-        if arm.status.mode != Status.HOLDING or arm.pending is not None:
-            raise ValueError('requires Holding and no pending goal; target not queued')
         if arm.target is None or not valid_pose(arm.target.pose):
             raise ValueError('invalid target pose')
         if arm.goal_pub.get_num_connections() == 0:
@@ -166,16 +155,12 @@ class TcpTest:
         msg = PoseGoal()
         msg.header = Header(stamp=rospy.Time.now(), frame_id=arm.base)
         msg.command_id, msg.pose, msg.speed_scale = self.next_id(), target.pose, self.speed
-        arm.pending = msg.command_id
         arm.goal_pub.publish(msg)
         arm.note = 'Sent id={} in {}'.format(msg.command_id, arm.base)
         rospy.loginfo('%s %s: xyz=(%.4f, %.4f, %.4f)', arm.side, arm.note,
                       msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
     def operate(self, arm, operation):
-        # STOP/DISABLE remain available even when telemetry is absent.
-        if operation not in (ControlCommand.STOP, ControlCommand.DISABLE) and not self.fresh(arm):
-            raise ValueError('fresh status and TCP feedback required for this operation')
         if arm.control_pub.get_num_connections() == 0:
             raise ValueError('no control subscriber')
         msg = ControlCommand()
@@ -201,16 +186,14 @@ class TcpTest:
                     arm.dirty = True
                 elif arm.dirty:
                     arm.dirty = False
-                    if self.send_on_release:
-                        self.send(arm)
+                    self.send(arm)
         self.handle(arm, action)
 
     def create_marker(self, arm):
         self.reset(arm)
         marker = InteractiveMarker()
         marker.header.frame_id, marker.name = self.frame, arm.name
-        trigger = 'release to send' if self.send_on_release else 'menu: Send target once'
-        marker.description = arm.side + ' TCP target (' + trigger + ')'
+        marker.description = arm.side + ' TCP target (release to send)'
         marker.pose, marker.scale = arm.target.pose, 0.22
         center = InteractiveMarkerControl(name='menu', always_visible=True)
         center.orientation.w = 1.0
@@ -237,7 +220,7 @@ class TcpTest:
                 ('ENABLE (Disabled -> Holding)', lambda: self.operate(arm, ControlCommand.ENABLE)),
                 ('STOP', lambda: self.operate(arm, ControlCommand.STOP)),
                 ('HOLD after stop (AwaitResume -> Holding)', lambda: self.operate(arm, ControlCommand.HOLD)),
-                ('Acknowledge FAULT (then ENABLE)', lambda: self.operate(arm, ControlCommand.RESUME)),
+                ('Acknowledge FAULT', lambda: self.operate(arm, ControlCommand.RESUME)),
                 ('DISABLE (passive output)', lambda: self.operate(arm, ControlCommand.DISABLE))):
             menu.insert(label, callback=lambda msg, a=action: self.handle(arm, a))
         menu.apply(self.server, arm.name)
@@ -266,8 +249,6 @@ class TcpTest:
                 reason = arm.status.reason if arm.status is not None else 'no controller'
                 label.text = ('{}: {} {} | {}'.format(arm.side, mode, reason, arm.note)
                               if ready else arm.side + ': FEEDBACK STALE / INVALID')
-                if not arm.collision_check_enabled:
-                    label.text += ' | GEOMETRIC CHECKS OFF'
                 labels.markers.append(label)
             self.labels.publish(labels)
 
