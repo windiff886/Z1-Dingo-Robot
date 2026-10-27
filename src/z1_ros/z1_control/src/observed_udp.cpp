@@ -2,6 +2,7 @@
 // packet/handshake logic.
 #include "UnitreeArmModule/IOPort/UdpPort.h"
 #include "udp_observer.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <poll.h>
@@ -56,7 +57,13 @@ IOPortStatus UdpPort::send(uint8_t *data, size_t length) {
   z1::udp::active->sent &= ok;
   return ok ? IOPortStatus::ok : IOPortStatus::err;
 }
-size_t UdpPort::recvLen(uint8_t *data, size_t length) {
+namespace {
+// The vendor's recvLen uses recvfrom without MSG_TRUNC: callers may read a
+// prefix of a datagram during discovery. Fixed-length recv must instead
+// reject oversized packets, including malformed calibration acknowledgments.
+size_t receive_packet(int socket_fd, const sockaddr_in &target,
+                      std::array<uint8_t, 1500> &buffer, uint8_t *data,
+                      size_t length, bool allow_prefix) {
   auto *o = z1::udp::active;
   if (!o || length > 1500 || length == 0)
     return 0;
@@ -66,7 +73,7 @@ size_t UdpPort::recvLen(uint8_t *data, size_t length) {
     auto remain = deadline - std::chrono::steady_clock::now();
     if (remain <= std::chrono::steady_clock::duration::zero())
       return 0;
-    pollfd fd{socket_fd_, POLLIN, 0};
+    pollfd fd{socket_fd, POLLIN, 0};
     auto us =
         std::chrono::duration_cast<std::chrono::microseconds>(remain).count();
     timespec timeout{us / 1000000, (us % 1000000) * 1000};
@@ -75,31 +82,39 @@ size_t UdpPort::recvLen(uint8_t *data, size_t length) {
       return 0;
     sockaddr_in source{};
     socklen_t size = sizeof(source);
-    ssize_t got = recvfrom(socket_fd_, _recvBuffTemp.data(),
-                           _recvBuffTemp.size(), MSG_DONTWAIT | MSG_TRUNC,
+    ssize_t got = recvfrom(socket_fd, buffer.data(), buffer.size(),
+                           MSG_DONTWAIT | MSG_TRUNC,
                            reinterpret_cast<sockaddr *>(&source), &size);
-    if (got <= 0 || got > static_cast<ssize_t>(length) ||
-        source.sin_addr.s_addr != targetAddr_.sin_addr.s_addr ||
-        source.sin_port != targetAddr_.sin_port)
+    if (got <= 0 || got > static_cast<ssize_t>(buffer.size()) ||
+        (!allow_prefix && got > static_cast<ssize_t>(length)) ||
+        source.sin_addr.s_addr != target.sin_addr.s_addr ||
+        source.sin_port != target.sin_port)
       continue;
-    memcpy(data, _recvBuffTemp.data(), got);
+    const size_t copied = std::min(static_cast<size_t>(got), length);
+    memcpy(data, buffer.data(), copied);
     o->last_length = got;
     o->received = std::chrono::steady_clock::now();
-    if (got == 2 && data[0] == 0x20)
+    if (copied == 2 && data[0] == 0x20)
       o->motor_count = data[1];
-    if (o->motor_count >= 7) {
+    if (o->motor_count >= 7 && static_cast<size_t>(got) == copied) {
       size_t joints = o->motor_count == 8 ? 7 : 6;
       if (static_cast<size_t>(got) == joints * 16)
         o->protocol = 1;
       else if (static_cast<size_t>(got) == joints * 22)
         o->protocol = 2;
     }
-    return got;
+    return copied;
   }
   return 0;
 }
+} // namespace
+size_t UdpPort::recvLen(uint8_t *data, size_t length) {
+  return receive_packet(socket_fd_, targetAddr_, _recvBuffTemp, data, length,
+                        true);
+}
 IOPortStatus UdpPort::recv(uint8_t *data, size_t length) {
-  size_t got = recvLen(data, length);
+  size_t got = receive_packet(socket_fd_, targetAddr_, _recvBuffTemp, data,
+                              length, false);
   if (!got)
     return IOPortStatus::timeout;
   if (got != length)

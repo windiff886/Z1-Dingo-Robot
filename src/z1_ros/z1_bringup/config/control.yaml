@@ -1,5 +1,7 @@
 # Shared joint control and model parameters for both Z1 arms.
-period: 0.002
+# 250 Hz: leaves time for the measured ~2.63 ms SDK passive exchange.
+# Measurements and limits: ../../COMMUNICATION_TIMING.md
+period: 0.004
 feedback_timeout: 0.08
 stream_timeout: 0.2
 # Short reference preview and bounded extrapolation for 20–100 Hz producers.
@@ -27,6 +29,10 @@ stiffness: [30, 30, 30, 0.2, 0.2, 0.2]
 damping: [4, 4, 4, 0.02, 0.02, 0.02]
 gravity: [0, 0, -9.81]
 tool_frame: tool
+# Temporary commissioning setting: disables geometric enable/stop/path checks
+# for BOTH arms. Distances are still reported. Restore true and restart to
+# re-enable self-collision and configured-obstacle clearance protection.
+collision_check_enabled: false
 collision_margin: 0.008
 collision_warning: 0.03
 validation_budget: 2.0

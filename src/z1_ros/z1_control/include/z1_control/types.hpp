@@ -64,6 +64,8 @@ struct ModelConfig {
   std::vector<FixedBox> fixed_boxes;
 };
 struct Config {
+  // Disable only for supervised commissioning; joint/dynamic limits remain.
+  bool collision_check_enabled{true};
   double period{0.002}, feedback_timeout{0.08}, stream_timeout{0.2};
   double reference_preview{0.03}, reference_extrapolation{0.1},
       reference_velocity_filter{0.01}, reference_horizon{0.5},

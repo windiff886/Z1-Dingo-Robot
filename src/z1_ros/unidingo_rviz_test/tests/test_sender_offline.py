@@ -139,7 +139,8 @@ def load_sender():
         return result
 
     module('rospy', Publisher=Publisher, Subscriber=Mock(), Timer=Mock(),
-           Time=Time, Duration=Time, get_param=lambda name: CONFIG[name[1:]],
+           Time=Time, Duration=Time,
+           get_param=lambda name, default=None: CONFIG[name[1:]] if name.startswith('~') else default,
            loginfo=Mock(), logwarn=Mock())
     module('tf2_ros', Buffer=Mock, TransformListener=Mock, TransformException=LookupError)
     module('tf2_geometry_msgs')
@@ -264,6 +265,7 @@ class SenderDecisions(unittest.TestCase):
         self.assertFalse(self.arm.goal_pub.messages)
 
     def test_release_sends_once_and_never_streams_updates(self):
+        self.node.send_on_release = True
         self.node.feedback(self.arm, self.feedback(Feedback.POSE_UPDATE))
         self.assertFalse(self.arm.goal_pub.messages)
         self.node.feedback(self.arm, self.feedback(Feedback.MOUSE_UP))
@@ -274,7 +276,7 @@ class SenderDecisions(unittest.TestCase):
         configured = dict(CONFIG, send_on_release=False, speed_scale=0.25,
                           telemetry_timeout=0.6)
         with patch.object(SENDER.rospy, 'get_param',
-                          side_effect=lambda name: configured[name[1:]]):
+                          side_effect=lambda name, default=None: configured[name[1:]] if name.startswith('~') else default):
             self.create_node()
         # Feedback older than the default timeout remains valid with this
         # configuration; releasing the marker still requires manual send.
@@ -300,6 +302,15 @@ class SenderDecisions(unittest.TestCase):
         self.assertIsNone(self.arm.pending)
         self.node.tick(None)
         self.assertEqual(len(self.arm.goal_pub.messages), 1)
+
+    def test_disabled_geometry_is_visible_without_sending_commands(self):
+        self.arm.collision_check_enabled = False
+        self.node.tick(None)
+        labels = self.node.labels.messages[-1].markers
+        self.assertIn('GEOMETRIC CHECKS OFF', labels[0].text)
+        self.assertNotIn('GEOMETRIC CHECKS OFF', labels[1].text)
+        self.assertFalse(self.arm.control_pub.messages)
+        self.assertFalse(self.arm.goal_pub.messages)
 
     def test_stop_disable_work_without_feedback_other_operations_do_not(self):
         self.arm.status.feedback_valid = False

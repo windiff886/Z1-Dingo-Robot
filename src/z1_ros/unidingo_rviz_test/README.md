@@ -15,6 +15,12 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 双臂通信参数来自 [communication.yaml](../z1_bringup/config/communication.yaml)，需按实际设备配置 IP 和本地端口。连接成功后机械臂处于 Disabled，通过界面菜单使能后才进入 Holding。
 
+当前控制周期为 250 Hz，UDP 接收预算为 3 ms，实测依据和适用范围见 [通信节拍说明](../COMMUNICATION_TIMING.md)。
+
+本次运动调试在共享 [control.yaml](../z1_bringup/config/control.yaml) 中设置 `collision_check_enabled: false`，对左右两臂关闭几何净空保护：不以连杆/已配置障碍物距离限制使能、停止、目标轨迹或制动路径。关节位置限位、速度/加速度/jerk、力矩及变化率、反馈时效、电机错误和受控制动仍保留。启动日志会提示保护关闭，RViz 状态文字显示 `GEOMETRIC CHECKS OFF`；距离数值仍作为诊断发布。此配置也影响独立 `arm.launch` 入口。
+
+恢复净空保护：将 `collision_check_enabled` 改回 `true` 并重启控制器和 RViz。本开关仅在启动时读取，不会因编辑 YAML 立即改变正在运行的控制器。原生 C++ `Config` 默认仍为 `true`。
+
 ## 这个启动文件做了什么
 
 ### 1. 加载整机模型
@@ -46,7 +52,7 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 默认 TCP 相对各臂 `link06` 沿 X 正方向平移 0.051 m，姿态相同。目标沿用 SDK 的有限位姿运动接口：先求终点逆解，再执行关节轨迹；TCP 中间路径由该关节轨迹决定。
 
-默认拖动只更新手柄，松开鼠标后发送一次目标。发送要求对应臂处于 Holding、反馈有效且新鲜、TF 可用，并且没有等待结束的旧目标。执行过程中再次提交会被拒绝，目标不排队。IK、轨迹生成、碰撞检查和力矩控制由 Z1 SDK 完成，具体接口见 [INTERFACES.md](../INTERFACES.md)。
+默认拖动只更新手柄，使用右键菜单 `Send target once` 显式发送一次目标。发送要求对应臂处于 Holding、反馈有效且新鲜、TF 可用，并且没有等待结束的旧目标。执行过程中再次提交会被拒绝，目标不排队。IK、轨迹生成、力矩控制和启用时的碰撞检查由 Z1 SDK 完成，具体接口见 [INTERFACES.md](../INTERFACES.md)。
 
 ### 4. 打开 RViz
 
@@ -62,13 +68,17 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 ## 界面操作
 
+初次调试先在 Disabled 下检查模型姿态、关节反馈和 TCP 手柄。进入 Holding 要求有效反馈和关节速度小于 `velocity_tolerance`。当 `collision_check_enabled: true` 时，还要求模型净空大于 `collision_warning`（当前 0.03 m）；本次配置为 `false`，允许从正常贴合的初始姿态进入保持，程序不会根据几何间隙阻止接触或碰撞。
+
+显示的 TCP、逆解和几何距离都基于当前反馈角，绝对末端精度需要独立验证。首次运动先验证单臂保持稳定，再进行小幅功能测试；另一臂保持 Disabled。TCP 目标使用关节空间轨迹，手柄的小幅位移不保证每个关节都只移动小角度，尤其在初始折叠或奇异附近需要核对生成的目标。
+
 1. 等待对应臂的 TCP 手柄出现。没有手柄时，检查控制器连接、有效反馈和 TF；状态文字会提示 `FEEDBACK STALE / INVALID`。
 2. 右键手柄中心球，选择 `ENABLE (Disabled -> Holding)`，等待状态变为 Holding。
-3. 拖动平移箭头或旋转圆环，松开鼠标发送目标，默认速度比例为 `0.15`。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
+3. 拖动平移箭头或旋转圆环编辑目标，再从右键菜单选择 `Send target once`，默认速度比例为 `0.05`。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
 4. 需要停止时选择 `STOP`。进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 将手柄重置到当前实测位置。
 5. Fault 原因处理后，选择 `Acknowledge FAULT (then ENABLE)`；进入 Disabled 后重新使能。`DISABLE (passive output)` 用于失能。
 
-在测试 YAML 中设置 `send_on_release: false` 时，拖动只编辑目标，使用右键菜单 `Send target once` 显式发送。
+默认 `send_on_release: false`，拖动只编辑目标，使用右键菜单 `Send target once` 显式发送。改为 `true` 后，松开鼠标会提交目标。
 
 ## YAML 配置
 
@@ -83,8 +93,8 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 测试配置加载到 `/rviz_tcp_test` 的私有参数空间：
 
 ```yaml
-send_on_release: true
-speed_scale: 0.15
+send_on_release: false
+speed_scale: 0.05
 telemetry_timeout: 0.3
 ```
 

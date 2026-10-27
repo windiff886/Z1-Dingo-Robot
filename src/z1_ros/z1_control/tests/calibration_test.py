@@ -8,11 +8,13 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 import yaml
 
 BINARY = str(Path(sys.argv.pop(1)).resolve())
+HOME = [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
 
 
 def local_port():
@@ -31,9 +33,16 @@ class Firmware:
         self.reply = 'success'
         self.joints = 6
         self.moving = self.nonfinite = self.motor_error = False
+        self.motor_error_code = 1
         self.drifting = False
+        self.reply_delay = 0.0
+        self.velocity_noise = False
         self.calibrated = False
+        self.bad_zero_joint = 3
+        self.initial_positions = [0.3] * 6
+        self.calibrated_positions = HOME.copy()
         self.calibrations = 0
+        self.received_packets = []
         self.commands = []
         self.error = None
         self.attempted = threading.Event()
@@ -48,12 +57,12 @@ class Firmware:
 
     def run(self):
         try:
-            stage = 0
             while not self.stopping.is_set():
                 try:
                     data, source = self.socket.recvfrom(1500)
                 except socket.timeout:
                     continue
+                self.received_packets.append(data)
                 if data == b'\x01':
                     self.calibrations += 1
                     self.attempted.set()
@@ -68,21 +77,31 @@ class Firmware:
                         continue
                 elif data == b'\x02':
                     motors = self.joints + 1
-                    reply = bytes((0x20, motors)) if stage % 2 == 0 else bytes([1] * (motors + 2))
-                    stage += 1
+                    # Real MCU returns the header and motor flags together,
+                    # even when IOUDP first asks for only the two-byte header.
+                    reply = bytes((0x20, motors)) + bytes([1] * motors)
                 elif len(data) == self.joints * 20:
                     command = struct.unpack('<' + 'f' * (len(data) // 4), data)
                     self.commands.append(command)
                     reply = b''
                     for joint in range(self.joints):
-                        position = 0.0 if self.calibrated and self.reply != 'bad_zero' else 0.3
+                        position = (0.0 if joint == 6 else
+                                    self.calibrated_positions[joint] if self.calibrated else
+                                    self.initial_positions[joint])
+                        if self.calibrated and self.reply == 'bad_zero' and joint == self.bad_zero_joint:
+                            position = HOME[joint] - 0.08
                         if self.drifting:
                             position += 0.02 * len(self.commands)
                         if self.nonfinite or joint == 6:
                             position = float('nan')
-                        reply += struct.pack('<4f', 0.0, 0.1 if self.moving else 0.0, 0.0, position)
+                        velocity = 0.1 if self.moving else 0.0
+                        if self.velocity_noise:
+                            velocity += 0.08 if len(self.commands) % 2 else -0.08
+                        reply += struct.pack('<4f', 0.0, velocity, 0.0, position)
                         if self.version == 2:
-                            reply += bytes((25, int(self.motor_error and joint == 0), 0, 25, 0, 0))
+                            error = self.motor_error_code if self.motor_error and joint == 0 else 0
+                            reply += bytes((25, error, 0, 25, 0, 0))
+                    time.sleep(self.reply_delay)
                 else:
                     raise RuntimeError(f'unexpected packet: {data!r}')
                 self.socket.sendto(reply, source)
@@ -109,8 +128,9 @@ class DualArmCalibration(unittest.TestCase):
         }
         self.options = dict(communication_config='communication.yaml', arms=['left', 'right'],
                             sample_count=3, sample_interval_ms=10, feedback_timeout_ms=300,
-                            reply_timeout_ms=50, max_joint_speed=0.02,
-                            max_position_drift=0.01, zero_tolerance=0.05)
+                            receive_budget_us=5000, reply_timeout_ms=50, max_joint_speed=0.02,
+                            max_position_drift=0.01, zero_reference=HOME.copy(),
+                            zero_tolerance=0.05)
 
     def tearDown(self):
         for peer in (self.left, self.right):
@@ -134,6 +154,72 @@ class DualArmCalibration(unittest.TestCase):
         for side, peer in (('left', self.left), ('right', self.right)):
             self.assertIn(f'{side}: SUCCEEDED', result.stdout)
             self.assertEqual(peer.calibrations, 1)
+
+    def test_calibration_uses_maintenance_receive_budget(self):
+        for side, peer in (('left', self.left), ('right', self.right)):
+            self.communication[side + '_arm']['controller']['receive_budget_us'] = 1000
+            peer.reply_delay = 0.0025
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.left.calibrations, 1)
+        self.assertEqual(self.right.calibrations, 1)
+
+    def test_receive_budget_must_leave_time_in_sampling_interval(self):
+        self.options['receive_budget_us'] = self.options['sample_interval_ms'] * 1000
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('receive_budget_us must be smaller than sample_interval_ms', result.stdout)
+        self.assertEqual(self.left.commands + self.right.commands, [])
+        self.assertEqual(self.left.calibrations + self.right.calibrations, 0)
+
+    def test_invalid_reference_rejected_before_connecting(self):
+        for reference in (None, [0.0] * 5, [0.0] * 7,
+                          [0.0, 0.0, 0.0, float('nan'), 0.0, 0.0],
+                          [0.0, 0.0, 0.0, float('inf'), 0.0, 0.0]):
+            with self.subTest(reference=reference):
+                self.options['zero_reference'] = reference
+                result = self.run_tool()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('zero_reference must contain six finite angles', result.stdout)
+                self.assertEqual(self.left.received_packets + self.right.received_packets, [])
+
+    def test_j4_checks_both_sides_of_home_and_rejects_zero(self):
+        self.options['arms'] = ['left']
+        for offset, passed in ((-0.049, True), (0.049, True),
+                               (-0.051, False), (0.051, False), (0.07435, False)):
+            with self.subTest(offset=offset):
+                self.left.calibrated = False
+                self.left.calibrated_positions[3] = HOME[3] + offset
+                result = self.run_tool('left ZERO\n')
+                self.assertEqual(result.returncode, 0 if passed else 1, result.stdout)
+                self.assertIn('left: SUCCEEDED' if passed else
+                              'left: ACKNOWLEDGED_UNVERIFIED', result.stdout)
+                if not passed:
+                    self.assertIn('reference=-0.07435', result.stdout)
+
+    def test_check_only_verifies_feedback_without_calibrating(self):
+        args = self.arguments()
+        result = subprocess.run([args[0], '--check-only', args[1]],
+                                input='left ZERO\nright ZERO\n', text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.stdout.count('passive feedback check passed'), 2)
+        self.assertEqual(self.left.calibrations + self.right.calibrations, 0)
+
+    def test_stationary_velocity_noise_uses_official_filter(self):
+        self.options['arms'] = ['right']
+        self.right.velocity_noise = True
+        result = self.run_tool('right ZERO\n')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.right.calibrations, 1)
+
+    def test_position_motion_blocks_calibration_even_with_zero_reported_velocity(self):
+        self.options['arms'] = ['right']
+        self.right.drifting = True
+        result = self.run_tool('right ZERO\n')
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('arm joints are moving', result.stdout)
+        self.assertEqual(self.right.calibrations, 0)
 
     def test_single_arm_selection_does_not_connect_or_calibrate_the_other(self):
         self.options['arms'] = ['right']
@@ -182,6 +268,26 @@ class DualArmCalibration(unittest.TestCase):
         self.assertIn('motor fault', result.stdout)
         self.assertEqual(self.right.calibrations, 0)
 
+    def test_vendor_unclassified_motor_status_does_not_block_calibration(self):
+        self.options['arms'] = ['right']
+        self.right.motor_error = True
+        self.right.motor_error_code = 0x40
+        result = self.run_tool('right ZERO\n')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('right: SUCCEEDED', result.stdout)
+        self.assertEqual(self.right.calibrations, 1)
+
+    def test_known_motor_error_with_extra_status_bits_blocks_calibration(self):
+        self.options['arms'] = ['right']
+        self.right.motor_error = True
+        self.right.motor_error_code = 0x41
+        result = self.run_tool('right ZERO\n')
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('MCU motor fault: joint=1 motor=1 temperature=25 error=0x41 connection=0',
+                      result.stdout)
+        self.assertIn('right: NOT_ATTEMPTED', result.stdout)
+        self.assertEqual(self.right.calibrations, 0)
+
     def test_device_error_is_distinguished_from_unknown(self):
         self.left.reply = 'reject'
         result = self.run_tool()
@@ -205,7 +311,44 @@ class DualArmCalibration(unittest.TestCase):
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn('left: ACKNOWLEDGED_UNVERIFIED', result.stdout)
+        self.assertIn('zero_tolerance=0.05 rad: J4=-0.15435 rad', result.stdout)
+        self.assertIn('reference=-0.07435, error=-0.08 rad', result.stdout)
+        self.assertIn('six-joint feedback [rad]:', result.stdout)
+        self.assertEqual(self.left.calibrations, 1)
         self.assertEqual(self.right.calibrations, 0)
+
+    def test_every_main_joint_is_checked_after_calibration(self):
+        self.left.reply = 'bad_zero'
+        for joint in range(6):
+            with self.subTest(joint=joint + 1):
+                self.left.bad_zero_joint = joint
+                self.left.calibrated = False
+                before = self.left.calibrations
+                result = self.run_tool()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('left: ACKNOWLEDGED_UNVERIFIED', result.stdout)
+                self.assertIn(f'J{joint + 1}=', result.stdout)
+                self.assertIn('error=-0.08 rad', result.stdout)
+                self.assertEqual(self.left.calibrations, before + 1)
+                self.assertEqual(self.right.calibrations, 0)
+
+    def test_wire_calibration_is_one_whole_arm_byte_with_passive_commands(self):
+        self.options['arms'] = ['left']
+        self.left.joints = 7
+        self.left.version = 2
+        self.left.initial_positions = [-0.0011741, 0.0010856, -0.0002773,
+                                       -0.074611, -0.10159, 0.0019411]
+        result = self.run_tool('left ZERO\n')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        packets = self.left.received_packets
+        self.assertEqual(packets.count(b'\x01'), 1)
+        marker = packets.index(b'\x01')
+        self.assertEqual(packets[:2], [b'\x02', b'\x02'])
+        self.assertTrue(all(packet == bytes(140) for packet in packets[2:marker]))
+        self.assertGreaterEqual(len(packets[2:marker]), self.options['sample_count'])
+        self.assertTrue(all(packet == bytes(140) for packet in packets[marker + 1:]))
+        self.assertGreaterEqual(len(packets[marker + 1:]), self.options['sample_count'])
+        self.assertEqual(self.right.received_packets, [])
 
     def test_partial_success_is_reported_per_arm(self):
         self.right.reply = 'drop'

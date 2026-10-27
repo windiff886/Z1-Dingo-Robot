@@ -211,6 +211,9 @@ bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
           if (p.t[i] > 0 && !segment(p.t[i], p.p[i], p.v[i], p.a[i], p.j[i]))
             return fail("trajectory polynomial outside joint limits");
       }
+  // Polynomial joint bounds above remain mandatory during commissioning.
+  if (!config_.collision_check_enabled)
+    return true;
   return geometryPathSafe(
       [&t](double at) {
         std::array<double, 6> q, v, a;
@@ -226,6 +229,9 @@ bool Controller::pathSafe(const Trajectory &t, Model &model, double margin,
 bool Controller::pathSafe(const JointTrajectory &t, Model &model, double margin,
                           double budget, std::string *failure,
                           const Vec &uncertainty) {
+  // JointTrajectory factories already validate polynomial extrema and v/a/jerk.
+  if (!config_.collision_check_enabled)
+    return true;
   return geometryPathSafe([&t](double at) { return t.sample(at); },
                           t.duration(), config_, model, margin, budget, failure,
                           uncertainty, Clock::now());
@@ -686,6 +692,10 @@ Output Controller::step(const Feedback &feedback, double now) {
     auto clearance = model_.clearanceSample(f.q);
     state_.collision_distance = clearance.distance;
     state_.collision_pair = clearance.pair;
+    // Keep measured distance telemetry even when enforcement is disabled.
+    const bool clearance_allows_enable =
+        !config_.collision_check_enabled ||
+        clearance.distance > config_.collision_warning;
     while (!operations_.empty()) {
       auto [op, id] = operations_.front();
       operations_.pop_front();
@@ -700,7 +710,7 @@ Output Controller::step(const Feedback &feedback, double now) {
         ++generation_;
         last_torque_.setZero();
       } else if (op == Operation::Enable && state_.mode == Mode::Disabled &&
-                 clearance.distance > config_.collision_warning &&
+                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -713,7 +723,7 @@ Output Controller::step(const Feedback &feedback, double now) {
                  (moving(state_.mode) || state_.mode == Mode::Holding))
         beginStop("user stop", now);
       else if (op == Operation::Resume && state_.mode == Mode::AwaitResume &&
-               clearance.distance > config_.collision_warning &&
+               clearance_allows_enable &&
                f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -725,13 +735,13 @@ Output Controller::step(const Feedback &feedback, double now) {
         } else
           startStream(resume_mode_, now);
       } else if (op == Operation::Resume && state_.mode == Mode::Fault &&
-                 clearance.distance > config_.collision_warning &&
+                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         state_.mode = Mode::Disabled;
         state_.reason = "fault acknowledged; enable required";
         ++generation_;
       } else if (op == Operation::Hold && state_.mode == Mode::AwaitResume &&
-                 clearance.distance > config_.collision_warning &&
+                 clearance_allows_enable &&
                  f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
         reference_ = f.q;
         velocity_.setZero();
@@ -756,13 +766,15 @@ Output Controller::step(const Feedback &feedback, double now) {
     }
     if (state_.mode == Mode::Disabled || state_.mode == Mode::Fault)
       return out;
-    if (clearance.distance <= config_.collision_margin) {
+    if (config_.collision_check_enabled &&
+        clearance.distance <= config_.collision_margin) {
       fault("measured geometric collision risk");
       return out;
     }
     if (streaming(state_.mode) && now > stream_deadline_)
       beginStop("stream input timeout", now);
-    if ((moving(state_.mode) || state_.mode == Mode::Holding) &&
+    if (config_.collision_check_enabled &&
+        (moving(state_.mode) || state_.mode == Mode::Holding) &&
         clearance.distance < config_.collision_warning)
       beginStop("collision warning distance", now);
     if (state_.mode == Mode::Fault)
@@ -854,7 +866,8 @@ Output Controller::step(const Feedback &feedback, double now) {
       next_a = vector(a);
     }
     if (moving(state_.mode)) {
-      // Every accepted step must preserve a clear, bounded braking path.
+      // Always preserve a joint-bounded braking path. Geometric clearance is
+      // enforced only when the commissioning switch is enabled.
       auto brake_in = input(next_q, next_v, next_a);
       brake_in.control_interface = ruckig::ControlInterface::Velocity;
       brake_in.target_velocity.fill(0);
@@ -865,16 +878,20 @@ Output Controller::step(const Feedback &feedback, double now) {
       double horizon = std::max(dt, config_.period);
       const Vec swept = velocity_.cwiseAbs() * horizon +
                         0.5 * config_.acceleration * horizon * horizon;
-      auto start_clearance =
-          model_.clearanceSample(reference_, uncertainty + swept);
+      bool interval_clear = true;
+      if (config_.collision_check_enabled) {
+        const auto start_clearance =
+            model_.clearanceSample(reference_, uncertainty + swept);
+        interval_clear = start_clearance.distance > config_.collision_margin;
+        if (!interval_clear)
+          failure =
+              "next interval clearance: " + std::string(start_clearance.pair);
+      }
       bool safe =
-          start_clearance.distance > config_.collision_margin &&
+          interval_clear &&
           generator_.calculate(brake_in, brake) == ruckig::Result::Working &&
           pathSafe(brake, model_, config_.collision_margin,
                    config_.lookahead_budget, &failure, uncertainty);
-      if (start_clearance.distance <= config_.collision_margin)
-        failure =
-            "next interval clearance: " + std::string(start_clearance.pair);
       if (!safe) {
         if (failure.empty())
           failure = "brake generator error";

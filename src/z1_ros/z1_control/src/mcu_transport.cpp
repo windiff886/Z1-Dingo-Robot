@@ -1,6 +1,7 @@
 #include "IOInterface/IOUDP/IOUDP.h"
 #include "udp_observer.hpp"
 #include "z1_control/transport.hpp"
+#include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -37,6 +38,9 @@ McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
   p.observer.budget_us = c.receive_budget_us;
 }
 McuTransport::~McuTransport() = default;
+Vec McuTransport::filteredVelocity() const {
+  return impl_->state->getDqFiltered();
+}
 Exchange McuTransport::exchange(const Output &output, double) {
   auto &p = *impl_;
   p.passive_feedback = false;
@@ -98,10 +102,27 @@ Exchange McuTransport::exchange(const Output &output, double) {
       for (unsigned joint = 0; joint < (f.has_gripper ? 7u : 6u); ++joint) {
         for (unsigned motor = 0; motor < (joint == 1 ? 2u : 1u); ++motor) {
           auto offset = joint * 22 + 16 + motor * 3;
-          f.motor_fault |=
-              static_cast<int8_t>(p.observer.state_bytes[offset]) >= 80 ||
-              p.observer.state_bytes[offset + 1] != 0 ||
-              (p.observer.state_bytes[offset + 2] >> 6) != 0;
+          const int temperature =
+              static_cast<int8_t>(p.observer.state_bytes[offset]);
+          const unsigned error = p.observer.state_bytes[offset + 1];
+          const unsigned connection = p.observer.state_bytes[offset + 2] >> 6;
+          // Match this vendor version's LowLevelState::checkError() and
+          // msgUdpToSerial.h. In particular, its observed 0x40 status is not
+          // classified as a motor error by the official library.
+          constexpr unsigned motor_error_mask = 0x01 | 0x02 | 0x04 | 0x20;
+          if (temperature >= 80 || (error & motor_error_mask) != 0 ||
+              connection != 0) {
+            f.motor_fault = true;
+            if (e.error.empty()) {
+              std::ostringstream detail;
+              detail << "MCU motor fault: joint=" << joint + 1
+                     << " motor=" << motor + 1
+                     << " temperature=" << temperature << " error=0x"
+                     << std::hex << error << std::dec
+                     << " connection=" << connection;
+              e.error = detail.str();
+            }
+          }
         }
       }
     p.missed = 0;

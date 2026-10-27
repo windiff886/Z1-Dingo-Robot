@@ -9,10 +9,10 @@ left_arm:
   controller:
     mcu_ip: 192.168.123.110
     local_port: 8881
-    receive_budget_us: 1000
+    receive_budget_us: 3000
 
 right_arm:
   controller:
     mcu_ip: 192.168.123.111
     local_port: 8882
-    receive_budget_us: 1000
+    receive_budget_us: 3000

@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import xacro
-import xacro.substitution_args
 
 ROOT = Path(__file__).resolve().parents[4]
 PACKAGES = {ET.parse(p).getroot().findtext('name'): p.parent
@@ -16,7 +15,16 @@ PACKAGES = {ET.parse(p).getroot().findtext('name'): p.parent
 
 def expand(**mappings):
     # Resolve this repo's package:// / $(find) references without a ROS 1 install.
-    with patch.object(xacro.substitution_args, '_eval_find', lambda name: str(PACKAGES[name])):
+    # Noetic xacro delegates to roslaunch rather than exposing its own
+    # substitution_args module. Intercept only package lookup on both versions.
+    original = xacro.eval_extension
+
+    def extension(value):
+        if value.startswith('$(find ') and value.endswith(')'):
+            return str(PACKAGES[value[len('$(find '):-1]])
+        return original(value)
+
+    with patch.object(xacro, 'eval_extension', side_effect=extension):
         return ET.fromstring(xacro.process_file(str(
             PACKAGES['uni_dingo'] / 'urdf/uni_dingo_dual_arm.urdf.xacro'), mappings=mappings).toxml())
 

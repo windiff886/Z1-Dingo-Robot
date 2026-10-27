@@ -12,6 +12,8 @@
 
 ## 2. 命令
 
+几何净空检查由启动参数 `collision_check_enabled` 控制。原生 C++ 默认 `true`；当前共享 `z1_bringup/config/control.yaml` 为本次双臂调试显式设为 `false`。关闭时，下表中的几何间距条件、路径碰撞拒绝和几何预警/故障停止不生效；关节限位、运动导数限制、力矩限制、反馈/电机保护以及受控制动保留。`status.collision_distance/pair` 仍报告实际模型计算值，不表示几何保护已启用。恢复 `true` 需重启控制器。
+
 所有类型位于 [z1_msgs/msg](z1_msgs/msg)。
 
 | Topic | 消息 / 字段 | 约束 |
@@ -80,7 +82,7 @@ rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 4, operat
 rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 5, operation: 3}'
 ```
 
-流式发布者应在有效期内持续送帧，如 20–100 Hz；原生控制周期默认 500 Hz，状态发布默认 100 Hz。消息频率不等于新 MCU 测量频率。不要用固定 token 的 `rostopic -r` 当作恢复后的控制器。
+流式发布者应在有效期内持续送帧，如 20–100 Hz；ROS 默认控制周期为 250 Hz，状态发布默认 100 Hz。消息频率不等于新 MCU 测量频率。不要用固定 token 的 `rostopic -r` 当作恢复后的控制器。
 
 ### 带时间和导数的参考
 
@@ -104,7 +106,7 @@ rostopic pub -1 /left_arm/control z1_msgs/ControlCommand '{command_id: 5, operat
 
 原生 `LinearPathOptions` 默认平移误差阈值 0.1 mm、旋转 1 mrad。准备阶段在每个关节样条段的 9 个时间点检查 FK 与目标路径，超差则加密，最多 5 轮；这些是数值拟合验收阈值，不是连续区间的解析误差上界，也不代表真实机械臂精度。路径不可达、连续 IK 分支断开或拟合仍超差时拒绝，不自动寻找绕障路线。原 `pose_goal` 保持终点 IK 后关节运动的语义。
 
-规划、拟合、全段几何检查均在提交线程完成，不持有控制锁。ROS 有限运动使用独立的单线程规划回调队列，操作和流式消息使用普通回调线程；原生执行仍为 500 Hz。STOP/DISABLE 会使尚在准备的旧计划失效。已接受路径按单调时钟直接采样，不再经过流式 Ruckig 前瞻；在线制动和几何检查继续使用同一控制内核。
+规划、拟合、全段几何检查均在提交线程完成，不持有控制锁。ROS 有限运动使用独立的单线程规划回调队列，操作和流式消息使用普通回调线程；原生执行按 ROS 配置为 250 Hz。STOP/DISABLE 会使尚在准备的旧计划失效。已接受路径按单调时钟直接采样，不再经过流式 Ruckig 前瞻；在线制动和几何检查继续使用同一控制内核。
 
 以下原生调用均需从 Holding 发起，等待上一运动结束后再提交下一条：
 
@@ -169,7 +171,7 @@ pub.publish(m)
 
 默认 [control.yaml](z1_bringup/config/control.yaml) 中所有向量可逐臂覆盖。配置先加载再由 launch 覆盖地址、前缀与后端。双臂可用不同配置、模型/描述文件和基座系重力；底层控制代码相同。
 
-默认 `period=0.002`、`receive_budget_us=1000`、`lookahead_budget=0.0005`。接收和在线检查串行执行；ROS 适配器要求两项预算之和小于周期，余量供其他控制计算和调度使用。这些是时间预算，不代表每轮都会用满。有限目标的离线规划预算不占控制锁。
+ROS 默认 `period=0.004`、`receive_budget_us=3000`、`lookahead_budget=0.0005`。接收和在线检查串行执行；ROS 适配器要求两项预算之和小于周期，余量供其他控制计算和调度使用。这些是时间预算，不代表每轮都会用满。有限目标的离线规划预算不占控制锁。
 
 `control_cpu=-1` 表示不指定 CPU；其他值为部署机上的逻辑 CPU 编号，13700H 应按实际拓扑选择性能核。`realtime_priority=0` 沿用默认调度，正值请求该控制线程使用 SCHED_FIFO，所需操作系统权限由部署环境提供。原生构造可传入 `RuntimeOptions{priority, cpu}`；`Runtime::timing()` 返回统计，持续时间单位为微秒。
 

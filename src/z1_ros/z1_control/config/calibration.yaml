@@ -1,16 +1,24 @@
 # Maintenance tool only. Stop both arm controllers before running it.
 # Paths are relative to this YAML file, in both source and installed layouts.
 communication_config: ../../z1_bringup/config/communication.yaml
-# Choose [left], [right], or [left, right]. Each arm requires console confirmation.
-arms: [left, right]
+# Arms are calibrated in the listed order; each requires console confirmation.
+# Choose [right, left], [left, right], [left], or [right].
+arms: [right, left]
 
 # Consecutive fresh samples used before calibration and for zero verification.
 sample_count: 20
 sample_interval_ms: 10
+# Maintenance receive window, independent of the normal controller cycle.
+# Must be shorter than sample_interval_ms; the MCU reply takes about 2.5 ms.
+receive_budget_us: 5000
 feedback_timeout_ms: 2000
 # Additional receive timeout after the official library's two-second wait.
 reply_timeout_ms: 200
-# Six arm joints only; units are rad/s and rad.
+# Six arm joints only; units are rad/s and rad. Speed checks use both the
+# vendor-filtered velocity and position differences over actual receive time.
 max_joint_speed: 0.02
 max_position_drift: 0.01
+# Post-calibration validation centers, J1..J6 in rad, matching official home.
+# This changes validation only; raw feedback and the MCU request are unchanged.
+zero_reference: [0.0, 0.0, 0.0, -0.07435, 0.0, 0.0]
 zero_tolerance: 0.05

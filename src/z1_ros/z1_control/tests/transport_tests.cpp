@@ -24,12 +24,16 @@ public:
   int fd;
   std::thread thread;
   std::atomic<bool> running{true}, drop{false}, malformed{false};
+  std::atomic<bool> oversized{false};
   std::atomic<bool> foreign{false}, motor_error{false}, hot{false},
       disconnected{false};
+  std::atomic<unsigned> error_bits{1};
   int protocol, joints;
+  bool combined_handshake;
   std::atomic<unsigned> commands{0};
   std::atomic<unsigned> calibrations{0};
-  Firmware(int v, int n) : protocol(v), joints(n) {
+  Firmware(int v, int n, bool combined = true)
+      : protocol(v), joints(n), combined_handshake(combined) {
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     require(fd >= 0, "loopback socket unavailable");
     sockaddr_in a{};
@@ -68,7 +72,12 @@ public:
         reply[0] = 0x10;
         size = 1;
       } else if (n == 1) {
-        if (stage % 2 == 0) {
+        if (combined_handshake) {
+          reply[0] = 0x20;
+          reply[1] = joints == 7 ? 8 : 7;
+          size = reply[1] + 2;
+          std::fill(reply.begin() + 2, reply.begin() + size, 1);
+        } else if (stage % 2 == 0) {
           reply[0] = 0x20;
           reply[1] = joints == 7 ? 8 : 7;
           size = 2;
@@ -81,14 +90,21 @@ public:
         ++commands;
         size = joints * (protocol == 1 ? 16 : 22);
         for (int j = 0; j < joints; ++j) {
+          const size_t stride = protocol == 1 ? 16 : 22;
+          float torque = static_cast<float>(-0.75 - j * 0.125);
+          float velocity = static_cast<float>(0.5 + j * 0.25);
+          float acceleration = static_cast<float>(5.0 + j);
           float pos = static_cast<float>(0.125 + j * 0.01);
-          memcpy(reply.data() + j * (protocol == 1 ? 16 : 22) + 12, &pos, 4);
+          memcpy(reply.data() + j * stride, &torque, 4);
+          memcpy(reply.data() + j * stride + 4, &velocity, 4);
+          memcpy(reply.data() + j * stride + 8, &acceleration, 4);
+          memcpy(reply.data() + j * stride + 12, &pos, 4);
           if (protocol == 2) {
             reply[j * 22 + 16] = 25;
             reply[j * 22 + 19] = 25;
             if (j == 0) {
               if (motor_error)
-                reply[j * 22 + 17] = 1;
+                reply[j * 22 + 17] = error_bits;
               if (hot)
                 reply[j * 22 + 16] = 85;
               if (disconnected)
@@ -98,6 +114,8 @@ public:
         }
         if (malformed)
           size -= 1;
+        if (oversized)
+          size += 1;
       }
       int sender = foreign ? socket(AF_INET, SOCK_DGRAM, 0) : fd;
       sendto(sender, reply.data(), size, 0,
@@ -116,54 +134,83 @@ int main() {
     // of the production 2 ms control period.
     cfg.period = 0.01;
     cfg.receive_budget_us = 5000;
-    for (int version : {1, 2})
-      for (int joints : {6, 7}) {
-        Firmware server(version, joints);
-        McuTransport driver(cfg);
-        Output command;
-        auto a = driver.exchange(command, now());
-        require(a.sent && a.feedback.fresh, "fresh feedback missing");
-        require(std::abs(a.feedback.q[0] - 0.125) < 1e-6,
-                "vendor packet decoded incorrectly");
-        require(a.feedback.has_gripper == (joints == 7),
-                "gripper detection failed");
-        auto b = driver.exchange(command, now());
-        require(b.feedback.fresh && b.feedback.sequence > a.feedback.sequence,
-                "identical values treated as stale");
-        require(b.feedback.received_at >= a.feedback.received_at,
-                "receive timestamp not monotonic");
-        server.drop = true;
-        auto c = driver.exchange(command, now());
-        require(c.sent && !c.feedback.fresh, "drop falsely refreshed sample");
-        server.drop = false;
-        server.malformed = true;
-        auto d = driver.exchange(command, now());
-        require(!d.feedback.fresh, "wrong length accepted");
-        server.malformed = false;
-        auto e = driver.exchange(command, now());
-        require(e.feedback.fresh, "feedback did not recover");
-        server.foreign = true;
-        auto invalid_peer = driver.exchange(command, now());
-        require(!invalid_peer.feedback.fresh, "wrong source port accepted");
-        server.foreign = false;
-        if (version == 2) {
-          for (auto *flag :
-               {&server.motor_error, &server.hot, &server.disconnected}) {
-            *flag = true;
-            auto device_fault = driver.exchange(command, now());
-            require(device_fault.feedback.fresh &&
-                        device_fault.feedback.motor_fault,
-                    "V2 device fault ignored");
-            *flag = false;
+    for (bool combined : {true, false})
+      for (int version : {1, 2})
+        for (int joints : {6, 7}) {
+          Firmware server(version, joints, combined);
+          McuTransport driver(cfg);
+          Output command;
+          auto a = driver.exchange(command, now());
+          require(a.sent && a.feedback.fresh, "fresh feedback missing");
+          for (int joint = 0; joint < 6; ++joint) {
+            require(std::abs(a.feedback.q[joint] - (0.125 + joint * 0.01)) < 1e-6,
+                    "position field or joint index decoded incorrectly");
+            require(std::abs(a.feedback.dq[joint] - (0.5 + joint * 0.25)) < 1e-6,
+                    "velocity field or joint index decoded incorrectly");
+            require(std::abs(a.feedback.tau[joint] - (-0.75 - joint * 0.125)) < 1e-6,
+                    "torque field or joint index decoded incorrectly");
           }
-          auto recovered = driver.exchange(command, now());
-          require(!recovered.feedback.motor_fault,
-                  "V2 device fault did not clear in feedback");
+          require(a.feedback.has_gripper == (joints == 7),
+                  "gripper detection failed");
+          if (joints == 7) {
+            require(std::abs(a.feedback.gripper_q - 0.185) < 1e-6 &&
+                        std::abs(a.feedback.gripper_dq - 2.0) < 1e-6 &&
+                        std::abs(a.feedback.gripper_tau + 1.5) < 1e-6,
+                    "gripper feedback mixed with main arm joints");
+          }
+          auto b = driver.exchange(command, now());
+          require(b.feedback.fresh && b.feedback.sequence > a.feedback.sequence,
+                  "identical values treated as stale");
+          require(b.feedback.received_at >= a.feedback.received_at,
+                  "receive timestamp not monotonic");
+          server.drop = true;
+          auto c = driver.exchange(command, now());
+          require(c.sent && !c.feedback.fresh, "drop falsely refreshed sample");
+          server.drop = false;
+          server.malformed = true;
+          auto d = driver.exchange(command, now());
+          require(!d.feedback.fresh, "wrong length accepted");
+          server.malformed = false;
+          server.oversized = true;
+          auto oversized = driver.exchange(command, now());
+          require(!oversized.feedback.fresh, "oversized feedback accepted");
+          server.oversized = false;
+          auto e = driver.exchange(command, now());
+          require(e.feedback.fresh, "feedback did not recover");
+          server.foreign = true;
+          auto invalid_peer = driver.exchange(command, now());
+          require(!invalid_peer.feedback.fresh, "wrong source port accepted");
+          server.foreign = false;
+          if (version == 2) {
+            server.motor_error = true;
+            server.error_bits = 0x40;
+            require(!driver.exchange(command, now()).feedback.motor_fault,
+                    "vendor-unclassified status falsely reported as fault");
+            for (unsigned known : {0x01u, 0x02u, 0x04u, 0x20u}) {
+              server.error_bits = known | 0x40;
+              require(driver.exchange(command, now()).feedback.motor_fault,
+                      "known motor error with extra status bits ignored");
+            }
+            server.error_bits = 1;
+            server.motor_error = false;
+            for (auto *flag :
+                 {&server.motor_error, &server.hot, &server.disconnected}) {
+              *flag = true;
+              auto device_fault = driver.exchange(command, now());
+              require(device_fault.feedback.fresh &&
+                          device_fault.feedback.motor_fault,
+                      "V2 device fault ignored");
+              *flag = false;
+            }
+            auto recovered = driver.exchange(command, now());
+            require(!recovered.feedback.motor_fault,
+                    "V2 device fault did not clear in feedback");
+          }
+          std::cout << "V" << version << ", joints=" << joints
+                    << ", combined handshake=" << combined
+                    << ": real UDP handshake, decode, stationary freshness, drop "
+                       "and length errors passed\n";
         }
-        std::cout << "V" << version << ", joints=" << joints
-                  << ": real UDP handshake, decode, stationary freshness, drop "
-                     "and length errors passed\n";
-      }
     cfg.local_port = 19081;
     {
       Firmware server(1, 6);

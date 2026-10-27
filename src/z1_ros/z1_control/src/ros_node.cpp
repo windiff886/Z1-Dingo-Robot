@@ -125,6 +125,11 @@ public:
     base_frame_ = prefix_ + "link00";
     params_.param("command_max_age", command_age_, 0.2);
     params_.param("publish_rate", publish_rate_, 100.0);
+    params_.param("collision_check_enabled", config_.collision_check_enabled,
+                  true);
+    if (!config_.collision_check_enabled)
+      ROS_WARN("Geometric clearance/collision checks DISABLED for this arm; "
+               "joint, motion, torque and feedback limits remain active");
     if (command_age_ <= 0 || !std::isfinite(command_age_) ||
         publish_rate_ <= 0 || publish_rate_ > 250 ||
         !std::isfinite(publish_rate_))

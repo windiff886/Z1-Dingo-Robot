@@ -16,13 +16,15 @@ roslaunch z1_bringup arm.launch
 
 ## 零点标定
 
-停止双臂控制器并将机械臂摆到机械零位后，执行 `rosrun z1_control z1_calibrate`。独立 C++ 工具读取 [calibration.yaml](z1_control/config/calibration.yaml)，复用通信配置，逐臂要求确认、调用官方标定接口并验证新的六轴零位反馈。默认标定左右两臂，也可在 YAML 中选择单臂。操作流程、结果和独立构建方式见 [双臂零点标定](CALIBRATION.md)。
+停止双臂控制器并将机械臂摆到机械零位后，执行 `rosrun z1_control z1_calibrate`。独立 C++ 工具读取 [calibration.yaml](z1_control/config/calibration.yaml)，复用通信配置，逐臂要求确认、调用官方标定接口并验证新的六轴零位反馈。默认按右臂、左臂的顺序标定，也可在 YAML 中调整顺序或选择单臂。操作流程、结果和独立构建方式见 [双臂零点标定](CALIBRATION.md)。
 
 ## 这个入口启动什么
 
 ### 1. 加载双臂运行配置
 
 读取 [通信配置](z1_bringup/config/communication.yaml)，分别设置 `/left_arm/controller` 和 `/right_arm/controller` 的连接参数。两个控制节点各自加载同一份 [控制配置](z1_bringup/config/control.yaml)，包括控制周期、反馈超时、速度/加速度/jerk、力矩、控制增益、到达容差和碰撞检查参数。
+
+本次调试配置为 `collision_check_enabled: false`，双臂的几何净空使能限制、路径检查和碰撞预警/故障停止均关闭，距离仍作诊断发布；关节、运动、力矩与反馈保护保留。启动日志和 RViz 会提示关闭状态。恢复该参数为 `true` 并重启即可重新启用净空保护，详见 [RViz 调试说明](unidingo_rviz_test/README.md)。
 
 左臂命名空间为 `/left_arm`，关节及 TF 前缀为 `left_`；右臂命名空间为 `/right_arm`，前缀为 `right_`。
 
@@ -43,7 +45,7 @@ roslaunch z1_bringup arm.launch
 
 每个进程内部包含 ROS Topic 适配、独立控制内核和 MCU 通信适配。通信适配通过官方 IOUDP 完成握手、命令发送及关节反馈解码；控制内核根据运动目标生成参考，并结合关节反馈计算输出力矩。
 
-原生控制周期默认 2 ms（500 Hz）。每轮发送上一轮输出、接收 MCU 反馈，再更新控制状态和下一轮输出。主臂的位置反馈控制及动力学补偿在主机完成，主臂发送的 MCU Kp/Kd 为零；夹爪使用独立的位置增益。
+ROS 配置的控制周期默认 4 ms（250 Hz），UDP 接收预算为 3 ms，以覆盖当前实测约 2.63 ms 的 SDK 被动交换耗时。选择依据、内核时间戳测试、测量局限和后续恢复 500 Hz 的验证条件见 [通信节拍说明](COMMUNICATION_TIMING.md)。每轮发送上一轮输出、接收 MCU 反馈，再更新控制状态和下一轮输出。主臂的位置反馈控制及动力学补偿在主机完成，主臂发送的 MCU Kp/Kd 为零；夹爪使用独立的位置增益。
 
 ### 4. 发布两臂关节变换
 

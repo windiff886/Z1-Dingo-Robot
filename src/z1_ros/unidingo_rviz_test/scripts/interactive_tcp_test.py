@@ -44,6 +44,8 @@ class Arm:
         self.side = side
         self.base = side + '_link00'
         self.name = side + '_tcp_target'
+        self.collision_check_enabled = rospy.get_param(
+            '/' + side + '_arm/controller/collision_check_enabled', True)
         self.status = self.tcp = self.target = None
         self.status_at = self.tcp_at = 0.0
         self.created = self.dirty = False
@@ -264,6 +266,8 @@ class TcpTest:
                 reason = arm.status.reason if arm.status is not None else 'no controller'
                 label.text = ('{}: {} {} | {}'.format(arm.side, mode, reason, arm.note)
                               if ready else arm.side + ': FEEDBACK STALE / INVALID')
+                if not arm.collision_check_enabled:
+                    label.text += ' | GEOMETRIC CHECKS OFF'
                 labels.markers.append(label)
             self.labels.publish(labels)
 

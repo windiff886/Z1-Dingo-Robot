@@ -28,6 +28,9 @@ public:
   explicit McuTransport(const McuConfig &);
   ~McuTransport();
   Exchange exchange(const Output &, double now) override;
+  // Vendor-filtered six-axis velocity for maintenance stillness checks.
+  // Consume only alongside a fresh, finite raw feedback sample.
+  Vec filteredVelocity() const;
   // Maintenance only: blocks for the vendor's approximately two-second wait.
   // Requires recent passive feedback. Never call from the runtime control loop.
   // One attempt per connection; an unknown result must not be retried blindly.

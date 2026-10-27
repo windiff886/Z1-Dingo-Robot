@@ -1,0 +1,703 @@
+{
+  "record_date": "2026-10-27",
+  "scope": "Passive discovery and all-zero UDP communication only; no enable, motion or calibration.",
+  "timestamp_method": "Linux SO_TIMESTAMPING TX_SOFTWARE/RX_SOFTWARE. Kernel TX-to-RX includes driver, USB NIC, link and device processing; not hardware wire timestamps.",
+  "pairing": "Serialized tests have one request outstanding. Stream tests report throughput only; firmware has no request sequence for per-request RTT pairing.",
+  "statistics_units": {
+    "time_distributions": "milliseconds",
+    "q_span_rad": "radians",
+    "frequency": "Hz"
+  },
+  "records": {
+    "left_serialized_10000us": {
+      "ip": "192.168.123.110",
+      "mode": "serialized",
+      "period_us": 10000,
+      "passive_sends": 1000,
+      "feedback_count": 1000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 1000,
+      "send_call_ms": {
+        "n": 1000,
+        "minimum": 0.022353,
+        "p50": 0.040108,
+        "p95": 0.09714584999999998,
+        "p99": 0.1098347,
+        "maximum": 0.190181,
+        "mean": 0.049942832999999985
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 1000,
+        "minimum": 0.010279,
+        "p50": 0.022537500000000002,
+        "p95": 0.031969649999999995,
+        "p99": 0.044763029999999995,
+        "maximum": 0.051818,
+        "mean": 0.024333531999999963
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1000,
+        "minimum": 0.020436,
+        "p50": 0.11151,
+        "p95": 0.12335385,
+        "p99": 0.13675002,
+        "maximum": 0.197634,
+        "mean": 0.0982382599999999
+      },
+      "kernel_rx_interval_ms": {
+        "n": 999,
+        "minimum": 9.899731,
+        "p50": 10.000493,
+        "p95": 10.0277272,
+        "p99": 10.06933904,
+        "maximum": 10.100041,
+        "mean": 10.0001043143143
+      },
+      "q_span_rad": [
+        1.770168e-05,
+        1.770349e-05,
+        4.1297799999999996e-05,
+        1.180000000000625e-05,
+        4.1297799999999996e-05,
+        2.35998e-05
+      ],
+      "kernel_tx_span_s": 9.9901101,
+      "kernel_rx_span_s": 9.99010421,
+      "achieved_send_hz": 99.99889791004405,
+      "achieved_feedback_hz": 99.99895686773822,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 1000,
+        "minimum": 2.366979,
+        "p50": 2.4340095,
+        "p95": 2.44905345,
+        "p99": 2.45726807,
+        "maximum": 2.469885,
+        "mean": 2.4347408889999964
+      },
+      "app_transaction_ms": {
+        "n": 1000,
+        "minimum": 2.448484,
+        "p50": 2.5653645000000003,
+        "p95": 2.5817848,
+        "p99": 2.59803015,
+        "maximum": 2.655666,
+        "mean": 2.557583027999998
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "right_serialized_10000us": {
+      "ip": "192.168.123.111",
+      "mode": "serialized",
+      "period_us": 10000,
+      "passive_sends": 1000,
+      "feedback_count": 1000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 1000,
+      "send_call_ms": {
+        "n": 1000,
+        "minimum": 0.013494,
+        "p50": 0.041300500000000004,
+        "p95": 0.0587659,
+        "p99": 0.06709596999999999,
+        "maximum": 0.183788,
+        "mean": 0.044157878000000046
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 1000,
+        "minimum": 0.004698,
+        "p50": 0.023328,
+        "p95": 0.0409383,
+        "p99": 0.04553843999999998,
+        "maximum": 0.125611,
+        "mean": 0.026436476
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1000,
+        "minimum": 0.007239,
+        "p50": 0.11074999999999999,
+        "p95": 0.12227924999999999,
+        "p99": 0.12986216,
+        "maximum": 0.200464,
+        "mean": 0.09709981099999992
+      },
+      "kernel_rx_interval_ms": {
+        "n": 999,
+        "minimum": 9.8013,
+        "p50": 10.000173,
+        "p95": 10.046111,
+        "p99": 10.095626099999999,
+        "maximum": 10.172299,
+        "mean": 10.00005002202202
+      },
+      "q_span_rad": [
+        2.94979e-05,
+        2.3599809999999998e-05,
+        0,
+        2.9500000000001747e-05,
+        4.13015e-05,
+        5.89811e-06
+      ],
+      "kernel_tx_span_s": 9.990070411,
+      "kernel_rx_span_s": 9.990049972,
+      "achieved_send_hz": 99.9992951901528,
+      "achieved_feedback_hz": 99.99949978228197,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 1000,
+        "minimum": 2.316408,
+        "p50": 2.4339735,
+        "p95": 2.4468103500000002,
+        "p99": 2.45679912,
+        "maximum": 2.521283,
+        "mean": 2.433297102999998
+      },
+      "app_transaction_ms": {
+        "n": 1000,
+        "minimum": 2.341826,
+        "p50": 2.5673635,
+        "p95": 2.5958320500000003,
+        "p99": 2.6181370399999997,
+        "maximum": 2.680628,
+        "mean": 2.5571584239999994
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "left_serialized_4000us": {
+      "ip": "192.168.123.110",
+      "mode": "serialized",
+      "period_us": 4000,
+      "passive_sends": 1000,
+      "feedback_count": 1000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 1000,
+      "send_call_ms": {
+        "n": 1000,
+        "minimum": 0.027549,
+        "p50": 0.051344,
+        "p95": 0.05372854999999999,
+        "p99": 0.05454445,
+        "maximum": 0.069887,
+        "mean": 0.048992053999999965
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 1000,
+        "minimum": 0.01412,
+        "p50": 0.0301035,
+        "p95": 0.032115899999999996,
+        "p99": 0.03278925,
+        "maximum": 0.049402,
+        "mean": 0.028797388000000007
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1000,
+        "minimum": 0.040495,
+        "p50": 0.0692895,
+        "p95": 0.11127685,
+        "p99": 0.11875224,
+        "maximum": 0.121961,
+        "mean": 0.07005645
+      },
+      "kernel_rx_interval_ms": {
+        "n": 999,
+        "minimum": 3.832911,
+        "p50": 4.00022,
+        "p95": 4.0167649999999995,
+        "p99": 4.0488770999999995,
+        "maximum": 4.09061,
+        "mean": 4.0000698188188215
+      },
+      "q_span_rad": [
+        1.770168e-05,
+        1.770349e-05,
+        4.1297799999999996e-05,
+        1.180000000000625e-05,
+        4.1297799999999996e-05,
+        2.35998e-05
+      ],
+      "kernel_tx_span_s": 3.996071737,
+      "kernel_rx_span_s": 3.996069749,
+      "achieved_send_hz": 249.9955120300184,
+      "achieved_feedback_hz": 249.99563639998917,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 1000,
+        "minimum": 2.350965,
+        "p50": 2.4351135,
+        "p95": 2.4439003,
+        "p99": 2.4522213099999997,
+        "maximum": 2.511263,
+        "mean": 2.4357194429999995
+      },
+      "app_transaction_ms": {
+        "n": 1000,
+        "minimum": 2.496458,
+        "p50": 2.535303,
+        "p95": 2.5666907,
+        "p99": 2.5767917,
+        "maximum": 2.610361,
+        "mean": 2.534814626999997
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "right_serialized_4000us": {
+      "ip": "192.168.123.111",
+      "mode": "serialized",
+      "period_us": 4000,
+      "passive_sends": 1000,
+      "feedback_count": 1000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 1000,
+      "send_call_ms": {
+        "n": 1000,
+        "minimum": 0.022553,
+        "p50": 0.037555500000000006,
+        "p95": 0.04337199999999998,
+        "p99": 0.09685609999999963,
+        "maximum": 0.372423,
+        "mean": 0.039328642999999955
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 1000,
+        "minimum": 0.010879,
+        "p50": 0.020847,
+        "p95": 0.02330105,
+        "p99": 0.02825295,
+        "maximum": 0.146379,
+        "mean": 0.020924675999999975
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1000,
+        "minimum": 0.051801,
+        "p50": 0.115202,
+        "p95": 0.12472810000000001,
+        "p99": 0.13298825,
+        "maximum": 1.046514,
+        "mean": 0.11510408399999993
+      },
+      "kernel_rx_interval_ms": {
+        "n": 999,
+        "minimum": 3.833808,
+        "p50": 3.999932,
+        "p95": 4.018919,
+        "p99": 4.0828031199999995,
+        "maximum": 4.150935,
+        "mean": 4.000099607607607
+      },
+      "q_span_rad": [
+        1.17999e-05,
+        2.3599809999999998e-05,
+        0,
+        4.129999999999412e-05,
+        4.13015e-05,
+        5.89811e-06
+      ],
+      "kernel_tx_span_s": 3.996110043,
+      "kernel_rx_span_s": 3.996099508,
+      "achieved_send_hz": 249.99311561751205,
+      "achieved_feedback_hz": 249.99377467954685,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 1000,
+        "minimum": 2.390802,
+        "p50": 2.4328190000000003,
+        "p95": 2.43983685,
+        "p99": 2.44842445,
+        "maximum": 2.456753,
+        "mean": 2.4330549849999974
+      },
+      "app_transaction_ms": {
+        "n": 1000,
+        "minimum": 2.491254,
+        "p50": 2.5695509999999997,
+        "p95": 2.5841858,
+        "p99": 2.59267887,
+        "maximum": 3.492132,
+        "mean": 2.5693608219999993
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "left_dual_4000us": {
+      "ip": "192.168.123.110",
+      "mode": "serialized",
+      "period_us": 4000,
+      "passive_sends": 2000,
+      "feedback_count": 2000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 2000,
+      "send_call_ms": {
+        "n": 2000,
+        "minimum": 0.012956,
+        "p50": 0.0454585,
+        "p95": 0.0503247,
+        "p99": 0.051275060000000004,
+        "maximum": 0.163664,
+        "mean": 0.04421830599999996
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 2000,
+        "minimum": 0.004502,
+        "p50": 0.026394,
+        "p95": 0.02977105,
+        "p99": 0.03054134,
+        "maximum": 0.071604,
+        "mean": 0.02574183099999995
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 2000,
+        "minimum": 0.019647,
+        "p50": 0.0649675,
+        "p95": 0.1107144,
+        "p99": 0.11864609,
+        "maximum": 0.223898,
+        "mean": 0.06827857250000016
+      },
+      "kernel_rx_interval_ms": {
+        "n": 1999,
+        "minimum": 3.808066,
+        "p50": 4.000476,
+        "p95": 4.0225971000000005,
+        "p99": 4.05538724,
+        "maximum": 4.180694,
+        "mean": 4.000053292146076
+      },
+      "q_span_rad": [
+        1.770168e-05,
+        1.770349e-05,
+        4.1297799999999996e-05,
+        1.180000000000625e-05,
+        4.1297799999999996e-05,
+        2.35998e-05
+      ],
+      "kernel_tx_span_s": 7.996109065,
+      "kernel_rx_span_s": 7.996106531,
+      "feedback_after_send_stopped": 0,
+      "last_feedback_minus_send_stop_ms": -0.063962,
+      "achieved_send_hz": 249.9965900602683,
+      "achieved_feedback_hz": 249.99666928524567,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 2000,
+        "minimum": 2.345087,
+        "p50": 2.43343,
+        "p95": 2.44612785,
+        "p99": 2.4553360399999997,
+        "maximum": 2.545255,
+        "mean": 2.4342407605000034
+      },
+      "app_transaction_ms": {
+        "n": 2000,
+        "minimum": 2.387863,
+        "p50": 2.5261519999999997,
+        "p95": 2.5670112499999997,
+        "p99": 2.57756404,
+        "maximum": 2.678581,
+        "mean": 2.5285108919999937
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "right_dual_4000us": {
+      "ip": "192.168.123.111",
+      "mode": "serialized",
+      "period_us": 4000,
+      "passive_sends": 2000,
+      "feedback_count": 2000,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 2000,
+      "send_call_ms": {
+        "n": 2000,
+        "minimum": 0.013119,
+        "p50": 0.024724,
+        "p95": 0.04432835,
+        "p99": 0.047712809999999994,
+        "maximum": 0.09165,
+        "mean": 0.026771079500000017
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 2000,
+        "minimum": 0.003712,
+        "p50": 0.0123705,
+        "p95": 0.02624795,
+        "p99": 0.02849811,
+        "maximum": 0.044057,
+        "mean": 0.0137830735
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 2000,
+        "minimum": 0.01611,
+        "p50": 0.030253,
+        "p95": 0.0678397,
+        "p99": 0.10772716,
+        "maximum": 0.187961,
+        "mean": 0.03649151349999998
+      },
+      "kernel_rx_interval_ms": {
+        "n": 1999,
+        "minimum": 3.817705,
+        "p50": 4.000061,
+        "p95": 4.0880403,
+        "p99": 4.1088890000000005,
+        "maximum": 4.183144,
+        "mean": 3.9999556278139026
+      },
+      "q_span_rad": [
+        4.71959e-05,
+        2.3599809999999998e-05,
+        0,
+        2.9500000000001747e-05,
+        4.13015e-05,
+        5.89811e-06
+      ],
+      "kernel_tx_span_s": 7.996003349,
+      "kernel_rx_span_s": 7.9959113,
+      "feedback_after_send_stopped": 0,
+      "last_feedback_minus_send_stop_ms": -0.03151,
+      "achieved_send_hz": 249.99989529143954,
+      "achieved_feedback_hz": 250.00277329239506,
+      "kernel_tx_to_kernel_rx_ms": {
+        "n": 2000,
+        "minimum": 2.311572,
+        "p50": 2.34361,
+        "p95": 2.43768925,
+        "p99": 2.44657393,
+        "maximum": 2.514335,
+        "mean": 2.359787559499997
+      },
+      "app_transaction_ms": {
+        "n": 2000,
+        "minimum": 2.347847,
+        "p50": 2.386171,
+        "p95": 2.5280621500000002,
+        "p99": 2.56004365,
+        "maximum": 2.647674,
+        "mean": 2.410332187000008
+      },
+      "paired_tx_precedes_rx": true
+    },
+    "left_stream_long_2000us": {
+      "ip": "192.168.123.110",
+      "mode": "stream",
+      "period_us": 2000,
+      "passive_sends": 2000,
+      "feedback_count": 1802,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 2000,
+      "send_call_ms": {
+        "n": 2000,
+        "minimum": 0.007449,
+        "p50": 0.037145,
+        "p95": 0.0489305,
+        "p99": 0.052435289999999996,
+        "maximum": 0.172372,
+        "mean": 0.03817173449999994
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 2000,
+        "minimum": 0.000874,
+        "p50": 0.021060000000000002,
+        "p95": 0.028252199999999998,
+        "p99": 0.03034023,
+        "maximum": 0.086648,
+        "mean": 0.021448810999999995
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1802,
+        "minimum": 0.009503,
+        "p50": 0.10485,
+        "p95": 0.139508,
+        "p99": 0.16406818,
+        "maximum": 0.245105,
+        "mean": 0.09258775305216438
+      },
+      "kernel_rx_interval_ms": {
+        "n": 1801,
+        "minimum": 2.088841,
+        "p50": 2.21598,
+        "p95": 2.333551,
+        "p99": 2.378707,
+        "maximum": 2.439894,
+        "mean": 2.2354703670183222
+      },
+      "q_span_rad": [
+        1.770168e-05,
+        1.770349e-05,
+        4.1297799999999996e-05,
+        1.180000000000625e-05,
+        4.1297799999999996e-05,
+        2.35998e-05
+      ],
+      "kernel_tx_span_s": 3.998156997,
+      "kernel_rx_span_s": 4.026082131,
+      "feedback_after_send_stopped": 14,
+      "last_feedback_minus_send_stop_ms": 30.281881,
+      "achieved_send_hz": 499.98036632877125,
+      "achieved_feedback_hz": 447.33314954821026,
+      "pairing_note": "No request sequence in firmware feedback. Do not infer per-request RTT from stream order."
+    },
+    "right_stream_long_2000us": {
+      "ip": "192.168.123.111",
+      "mode": "stream",
+      "period_us": 2000,
+      "passive_sends": 2000,
+      "feedback_count": 1802,
+      "skipped_slots": 0,
+      "all_commands_zero": true,
+      "interrupted": false,
+      "tx_timestamps_present": 2000,
+      "send_call_ms": {
+        "n": 2000,
+        "minimum": 0.007924,
+        "p50": 0.0387,
+        "p95": 0.06074085,
+        "p99": 0.06606841999999999,
+        "maximum": 0.170116,
+        "mean": 0.04331623449999994
+      },
+      "app_send_to_kernel_tx_ms": {
+        "n": 2000,
+        "minimum": 0.003109,
+        "p50": 0.0214125,
+        "p95": 0.04208625,
+        "p99": 0.04446662999999999,
+        "maximum": 0.059076,
+        "mean": 0.026063398500000022
+      },
+      "kernel_rx_to_app_read_ms": {
+        "n": 1802,
+        "minimum": 0.026001,
+        "p50": 0.112224,
+        "p95": 0.1562896,
+        "p99": 0.17852963,
+        "maximum": 0.29897,
+        "mean": 0.11316974361820202
+      },
+      "kernel_rx_interval_ms": {
+        "n": 1801,
+        "minimum": 2.086212,
+        "p50": 2.215206,
+        "p95": 2.329186,
+        "p99": 2.368693,
+        "maximum": 2.426914,
+        "mean": 2.235414278178789
+      },
+      "q_span_rad": [
+        2.94979e-05,
+        1.769982e-05,
+        0,
+        2.9500000000001747e-05,
+        4.13015e-05,
+        5.89811e-06
+      ],
+      "kernel_tx_span_s": 3.998149537,
+      "kernel_rx_span_s": 4.025981115,
+      "feedback_after_send_stopped": 14,
+      "last_feedback_minus_send_stop_ms": 30.195381,
+      "achieved_send_hz": 499.98129922372635,
+      "achieved_feedback_hz": 447.3443735962482,
+      "pairing_note": "No request sequence in firmware feedback. Do not infer per-request RTT from stream order."
+    }
+  },
+  "network_metadata": {
+    "enx68da73ae507e": {
+      "driver": "/sys/bus/usb/drivers/ax88179_178a",
+      "usb_device": "/sys/devices/pci0000:00/0000:00:14.0/usb2/2-3/2-3.4",
+      "speed_mbps": "100",
+      "duplex": "full",
+      "usb_speed_mbps": "5000",
+      "usb_power_control": "on",
+      "usb_runtime_status": "active",
+      "usb_autosuspend_delay_ms": "2000"
+    },
+    "enx6c1ff76cea61": {
+      "driver": "/sys/bus/usb/drivers/ax88179_178a",
+      "usb_device": "/sys/devices/pci0000:00/0000:00:14.0/usb2/2-2/2-2.4",
+      "speed_mbps": "100",
+      "duplex": "full",
+      "usb_speed_mbps": "5000",
+      "usb_power_control": "on",
+      "usb_runtime_status": "active",
+      "usb_autosuspend_delay_ms": "2000"
+    }
+  },
+  "sdk_cadence_raw": "192.168.123.110 period_us=2000 receive_budget_us=1000 fresh=268/500 faults=0 max_missed_run=5 skipped_slots=0 exchange_us_p50=1198.72 p99=1302.84 max=1410.74\n192.168.123.110 period_us=4000 receive_budget_us=3000 fresh=500/500 faults=0 max_missed_run=0 skipped_slots=0 exchange_us_p50=2632.4 p99=2658.45 max=2829.09\n192.168.123.111 period_us=2000 receive_budget_us=1000 fresh=269/500 faults=0 max_missed_run=5 skipped_slots=0 exchange_us_p50=1209.76 p99=1272.66 max=1384.24\n192.168.123.111 period_us=4000 receive_budget_us=3000 fresh=500/500 faults=0 max_missed_run=0 skipped_slots=0 exchange_us_p50=2639.36 p99=2697.77 max=2728.19\n",
+  "icmp_raw": {
+    "left": "PING 192.168.123.110 (192.168.123.110) 140(168) bytes of data.\n148 bytes from 192.168.123.110: icmp_seq=1 ttl=255 time=0.240 ms\n148 bytes from 192.168.123.110: icmp_seq=2 ttl=255 time=0.235 ms\n148 bytes from 192.168.123.110: icmp_seq=3 ttl=255 time=0.244 ms\n148 bytes from 192.168.123.110: icmp_seq=4 ttl=255 time=0.266 ms\n148 bytes from 192.168.123.110: icmp_seq=5 ttl=255 time=0.270 ms\n148 bytes from 192.168.123.110: icmp_seq=6 ttl=255 time=0.242 ms\n148 bytes from 192.168.123.110: icmp_seq=7 ttl=255 time=0.232 ms\n148 bytes from 192.168.123.110: icmp_seq=8 ttl=255 time=0.244 ms\n148 bytes from 192.168.123.110: icmp_seq=9 ttl=255 time=0.238 ms\n148 bytes from 192.168.123.110: icmp_seq=10 ttl=255 time=0.265 ms\n148 bytes from 192.168.123.110: icmp_seq=11 ttl=255 time=0.210 ms\n148 bytes from 192.168.123.110: icmp_seq=12 ttl=255 time=0.214 ms\n148 bytes from 192.168.123.110: icmp_seq=13 ttl=255 time=0.225 ms\n148 bytes from 192.168.123.110: icmp_seq=14 ttl=255 time=0.208 ms\n148 bytes from 192.168.123.110: icmp_seq=15 ttl=255 time=0.232 ms\n148 bytes from 192.168.123.110: icmp_seq=16 ttl=255 time=0.231 ms\n148 bytes from 192.168.123.110: icmp_seq=17 ttl=255 time=0.237 ms\n148 bytes from 192.168.123.110: icmp_seq=18 ttl=255 time=0.212 ms\n148 bytes from 192.168.123.110: icmp_seq=19 ttl=255 time=0.239 ms\n148 bytes from 192.168.123.110: icmp_seq=20 ttl=255 time=0.262 ms\n\n--- 192.168.123.110 ping statistics ---\n20 packets transmitted, 20 received, 0% packet loss, time 3876ms\nrtt min/avg/max/mdev = 0.208/0.237/0.270/0.017 ms\n",
+    "right": "PING 192.168.123.111 (192.168.123.111) 140(168) bytes of data.\n148 bytes from 192.168.123.111: icmp_seq=1 ttl=255 time=0.249 ms\n148 bytes from 192.168.123.111: icmp_seq=2 ttl=255 time=0.263 ms\n148 bytes from 192.168.123.111: icmp_seq=3 ttl=255 time=0.259 ms\n148 bytes from 192.168.123.111: icmp_seq=4 ttl=255 time=0.256 ms\n148 bytes from 192.168.123.111: icmp_seq=5 ttl=255 time=0.238 ms\n148 bytes from 192.168.123.111: icmp_seq=6 ttl=255 time=0.210 ms\n148 bytes from 192.168.123.111: icmp_seq=7 ttl=255 time=0.206 ms\n148 bytes from 192.168.123.111: icmp_seq=8 ttl=255 time=0.204 ms\n148 bytes from 192.168.123.111: icmp_seq=9 ttl=255 time=0.233 ms\n148 bytes from 192.168.123.111: icmp_seq=10 ttl=255 time=0.265 ms\n148 bytes from 192.168.123.111: icmp_seq=11 ttl=255 time=0.319 ms\n148 bytes from 192.168.123.111: icmp_seq=12 ttl=255 time=0.275 ms\n148 bytes from 192.168.123.111: icmp_seq=13 ttl=255 time=0.273 ms\n148 bytes from 192.168.123.111: icmp_seq=14 ttl=255 time=0.312 ms\n148 bytes from 192.168.123.111: icmp_seq=15 ttl=255 time=0.277 ms\n148 bytes from 192.168.123.111: icmp_seq=16 ttl=255 time=0.286 ms\n148 bytes from 192.168.123.111: icmp_seq=17 ttl=255 time=0.294 ms\n148 bytes from 192.168.123.111: icmp_seq=18 ttl=255 time=0.277 ms\n148 bytes from 192.168.123.111: icmp_seq=19 ttl=255 time=0.327 ms\n148 bytes from 192.168.123.111: icmp_seq=20 ttl=255 time=0.278 ms\n\n--- 192.168.123.111 ping statistics ---\n20 packets transmitted, 20 received, 0% packet loss, time 3876ms\nrtt min/avg/max/mdev = 0.204/0.265/0.327/0.034 ms\n"
+  },
+  "nic_counter_deltas": {
+    "enx68da73ae507e": {
+      "tx_errors": 0,
+      "rx_errors": 0,
+      "tx_dropped": 0,
+      "rx_dropped": 0
+    },
+    "enx6c1ff76cea61": {
+      "tx_errors": 0,
+      "rx_errors": 0,
+      "tx_dropped": 0,
+      "rx_dropped": 0
+    }
+  },
+  "original_local_directory": "/tmp/z1-communication-timing",
+  "original_file_sha256": {
+    "summary.json": "c65981939afb8705549647eed46ca51015815b986f0cef464702115a9bbe7992",
+    "network_metadata.json": "3983d62ae49ae9a365292042011717def4a0dee68b6c39708f10f59d2d77beed",
+    "project_sdk_cadence.txt": "70cab3bc5c24a68f9ba1954b78ab4040bf77bb6d1c980ac19379f1ab517b8db3",
+    "left_ping.txt": "845fb831fd7b91e40fc485be15f355bedd9982186050038a1c8458c0eed35a50",
+    "right_ping.txt": "18e5a02695070d8ec8ba662dc4510324ecdad90fadf1f0667fb463af213f363e",
+    "passive_timing.cpp": "dc10e3dec71d4f61009490557428c5c823c88e7727328bce12119ad334a73a6b"
+  },
+  "raw_frame_data_archived_in_repository": false,
+  "limits": [
+    "Short passive tests do not validate physical closed-loop motion.",
+    "500 Hz TX/RX count difference is not localized packet loss.",
+    "Measurements do not establish a universal MCU/firmware frequency limit."
+  ],
+  "earlier_ros_disabled_preflight": {
+    "left": {
+      "samples": 301,
+      "all_disabled": true,
+      "valid_recent": 200,
+      "recent_samples": 200,
+      "feedback_age_max": 0.003882926999722258,
+      "loop_period_max": 0.008126108999931603,
+      "exchange_time_max": 0.002641963,
+      "missed_control_slots": 16,
+      "compute_overruns": 0,
+      "collision_distance": 0.0016409039325563546,
+      "collision_pair": "link02_0 / link06_0",
+      "reason": "startup disabled"
+    },
+    "right": {
+      "samples": 301,
+      "all_disabled": true,
+      "valid_recent": 200,
+      "recent_samples": 200,
+      "feedback_age_max": 0.007572974000140675,
+      "loop_period_max": 0.008087006000096153,
+      "exchange_time_max": 0.002744628,
+      "missed_control_slots": 33,
+      "compute_overruns": 0,
+      "collision_distance": 0.001647832907691251,
+      "collision_pair": "link02_0 / link06_0",
+      "reason": "startup disabled"
+    }
+  },
+  "earlier_sdk_observation": {
+    "left_2ms_1ms_fresh": 263,
+    "right_2ms_1ms_fresh": 270,
+    "samples_per_case": 500,
+    "both_4ms_3ms_fresh": 500,
+    "source_local_report": "/tmp/z1-communication-audit/RVIZ_PREFLIGHT.md"
+  },
+  "firmware_version": "Not established during these measurements."
+}
