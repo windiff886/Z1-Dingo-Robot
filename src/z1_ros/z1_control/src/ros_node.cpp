@@ -80,7 +80,7 @@ class Node {
   std::unique_ptr<z1::Runtime> runtime_;
   std::string prefix_, base_frame_;
   double command_age_{0.2}, publish_rate_{100};
-  ros::Publisher joints_, tcp_, status_, results_;
+  ros::Publisher joints_, commands_, tcp_, status_, results_;
   std::vector<ros::Subscriber> subscriptions_;
   // Serialize low-rate result messages between callback threads; ROS publisher
   // itself is thread-safe.
@@ -140,6 +140,9 @@ public:
            &config_.impedance_gain_time_constant},
           {"position_tolerance", &config_.position_tolerance},
           {"velocity_tolerance", &config_.velocity_tolerance},
+          {"joint_limit_tolerance", &config_.joint_limit_tolerance},
+          {"start_velocity_tolerance", &config_.start_velocity_tolerance},
+          {"stationary_window", &config_.stationary_window},
           {"settle_timeout", &config_.settle_timeout},
           {"tcp_position_tolerance", &config_.tcp_position_tolerance},
           {"tcp_orientation_tolerance", &config_.tcp_orientation_tolerance}})
@@ -151,6 +154,8 @@ public:
     readVector(params_, "torque_rate", config_.torque_rate);
     readVector(params_, "kp", config_.kp);
     readVector(params_, "kd", config_.kd);
+    readVector(params_, "mcu_kp", config_.mcu_kp);
+    readVector(params_, "mcu_kd", config_.mcu_kd);
     readVector(params_, "stiffness", config_.stiffness);
     readVector(params_, "damping", config_.damping);
     auto model = z1::defaultModelConfig(urdf);
@@ -218,6 +223,7 @@ public:
         [mcu] { return std::make_unique<z1::McuTransport>(mcu); },
         runtime_options);
     joints_ = nh_.advertise<sensor_msgs::JointState>("joint_states", 1);
+    commands_ = nh_.advertise<sensor_msgs::JointState>("commanded_joint_states", 1);
     tcp_ = nh_.advertise<geometry_msgs::PoseStamped>("tcp_pose", 1);
     status_ = nh_.advertise<z1_msgs::Status>("status", 1, true);
     results_ = nh_.advertise<z1_msgs::MotionResult>("result", 128);
@@ -413,6 +419,13 @@ public:
     planner.start();
     ros::WallRate rate(publish_rate_);
     sensor_msgs::JointState joints;
+    sensor_msgs::JointState commands;
+    commands.name.resize(6);
+    commands.position.resize(6);
+    commands.velocity.resize(6);
+    commands.effort.resize(6);
+    for (int i = 0; i < 6; ++i)
+      commands.name[i] = prefix_ + "joint" + std::to_string(i + 1);
     while (ros::ok()) {
       auto s = runtime_->controller().snapshot();
       const auto timing = runtime_->timing();
@@ -451,6 +464,14 @@ public:
       status.trajectory_duration = s.trajectory_duration;
       status.trajectory_time_scale = s.trajectory_time_scale;
       status_.publish(status);
+      commands.header.stamp = stamp;
+      commands.header.frame_id = base_frame_;
+      for (int i = 0; i < 6; ++i) {
+        commands.position[i] = s.reference_position[i];
+        commands.velocity[i] = s.reference_velocity[i];
+        commands.effort[i] = s.commanded_torque[i];
+      }
+      commands_.publish(commands);
       if (s.feedback.sequence > 0) {
         joints.header.stamp = stamp;
         const size_t count = s.feedback.has_gripper ? 7 : 6;

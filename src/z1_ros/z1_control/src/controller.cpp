@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 namespace z1 {
 namespace {
@@ -59,12 +60,17 @@ Controller::Controller(ModelConfig m, Config c)
       c.reference_extrapolation > c.stream_timeout)
     throw std::invalid_argument("reference prediction exceeds input validity");
   for (auto *v : {&c.velocity, &c.acceleration, &c.jerk, &c.torque,
-                  &c.torque_rate, &c.kp, &c.kd, &c.stiffness, &c.damping})
+                  &c.torque_rate, &c.kp, &c.kd, &c.mcu_kp, &c.mcu_kd,
+                  &c.stiffness, &c.damping})
     if (!v->allFinite() || (v->array() <= 0).any())
       throw std::invalid_argument("invalid positive control limits/gains");
   config_.torque = config_.torque.cwiseMin(model_.effort());
   if (!std::isfinite(c.position_tolerance) || c.position_tolerance <= 0 ||
       !std::isfinite(c.velocity_tolerance) || c.velocity_tolerance <= 0 ||
+      !std::isfinite(c.start_velocity_tolerance) ||
+      c.start_velocity_tolerance <= 0 ||
+      !std::isfinite(c.stationary_window) || c.stationary_window <= 0 ||
+      !std::isfinite(c.joint_limit_tolerance) || c.joint_limit_tolerance < 0 ||
       !std::isfinite(c.settle_timeout) || c.settle_timeout <= 0 ||
       !std::isfinite(c.tcp_position_tolerance) ||
       c.tcp_position_tolerance <= 0 ||
@@ -162,13 +168,68 @@ bool Controller::jointPathWithinLimits(const Trajectory &t, Model &model,
   return true;
 }
 bool Controller::readyForFiniteMotion() const {
-  return state_.feedback_valid && (state_.mode == Mode::Holding ||
-                                   (state_.mode == Mode::Disabled &&
-                                    state_.feedback.dq.cwiseAbs().maxCoeff() <
-                                        config_.velocity_tolerance));
+  return state_.feedback_valid &&
+         (state_.mode == Mode::Holding ||
+          (state_.mode == Mode::Disabled &&
+           stationary(config_.start_velocity_tolerance)));
+}
+std::string Controller::finiteMotionRejection() const {
+  if (!state_.feedback_valid)
+    return "finite motion requires valid fresh feedback";
+  if (state_.mode != Mode::Disabled && state_.mode != Mode::Holding)
+    return "finite motion requires Disabled or Holding; active motion is busy";
+  return "finite motion requires stationary feedback";
+}
+void Controller::recordPosition(const Feedback &feedback) {
+  positions_.push_back({feedback.received_at, feedback.q});
+  // Retain one sample on or before the window boundary. Repeated control
+  // cycles with retained feedback never manufacture a stationary window.
+  const double cutoff = feedback.received_at - config_.stationary_window;
+  while (positions_.size() > 2 && positions_[1].time <= cutoff)
+    positions_.pop_front();
+  // Bound storage even for a misconfigured producer with tiny sample periods.
+  if (positions_.size() > 1024)
+    positions_.pop_front();
+}
+Vec Controller::positionRange() const {
+  Vec lower = positions_.front().position, upper = lower;
+  for (const auto &sample : positions_) {
+    lower = lower.cwiseMin(sample.position);
+    upper = upper.cwiseMax(sample.position);
+  }
+  return upper - lower;
+}
+bool Controller::stationary(double tolerance) const {
+  const bool quiet_velocity =
+      state_.feedback.dq.cwiseAbs().maxCoeff() < tolerance;
+  if (positions_.size() >= 2) {
+    const auto &last = positions_.back();
+    const auto &previous = positions_[positions_.size() - 2];
+    // Do not let an older quiet window conceal a newly moving arm.
+    if ((last.position - previous.position).cwiseAbs().maxCoeff() >=
+        tolerance * (last.time - previous.time))
+      return false;
+    // Clean velocity and a matching recent position change need no extra
+    // waiting window after an ordinary deceleration.
+    if (quiet_velocity)
+      return true;
+    const double elapsed = positions_.back().time - positions_.front().time;
+    // Range (rather than endpoint displacement) also detects an arm moving
+    // away and returning within the window.
+    if (positionRange().maxCoeff() >= tolerance * elapsed)
+      return false;
+    if (elapsed >= config_.stationary_window - 1e-9)
+      return true;
+  }
+  // Before enough fresh positions exist, keep the original measured-velocity
+  // check. A quiet encoder can start immediately; noisy feedback needs history.
+  return quiet_velocity && positions_.size() < 2;
+}
+Vec Controller::boundedFeedback() const {
+  return state_.feedback.q.cwiseMax(model_.lower()).cwiseMin(model_.upper());
 }
 Vec Controller::finiteStart() const {
-  return state_.mode == Mode::Disabled ? state_.feedback.q : reference_;
+  return state_.mode == Mode::Disabled ? boundedFeedback() : reference_;
 }
 
 bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
@@ -177,11 +238,14 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
   uint64_t generation;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!readyForFiniteMotion() || id == 0 || id <= last_goal_id_ ||
-        !std::isfinite(speed) || speed <= 0 || speed > 1) {
+    if (!readyForFiniteMotion()) {
+      event(id, Outcome::Rejected, finiteMotionRejection());
+      return false;
+    }
+    if (id == 0 || id <= last_goal_id_ || !std::isfinite(speed) ||
+        speed <= 0 || speed > 1) {
       event(id, Outcome::Rejected,
-            "requires valid holding/static disabled feedback, increasing goal "
-            "ID and speed in (0,1]");
+            "requires increasing positive goal ID and speed in (0,1]");
       return false;
     }
     seed = finiteStart();
@@ -193,12 +257,11 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
   std::string reason = "accepted";
   Trajectory candidate;
   if (pose)
-    okay = planning_model_.ik(*pose, seed, target);
+    okay = planning_model_.ik(*pose, seed, target,
+                             config_.joint_limit_tolerance, &reason);
   else
     target = *q;
-  if (!okay)
-    reason = "IK failed";
-  else if (!planning_model_.withinLimits(target)) {
+  if (okay && !planning_model_.withinLimits(target)) {
     okay = false;
     reason = "joint target outside limits";
   }
@@ -266,10 +329,12 @@ bool Controller::preparePath(
   uint64_t generation;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!readyForFiniteMotion() || id == 0 || id <= last_goal_id_) {
-      event(id, Outcome::Rejected,
-            "requires valid holding/static disabled feedback and increasing "
-            "goal ID");
+    if (!readyForFiniteMotion()) {
+      event(id, Outcome::Rejected, finiteMotionRejection());
+      return false;
+    }
+    if (id == 0 || id <= last_goal_id_) {
+      event(id, Outcome::Rejected, "requires increasing positive goal ID");
       return false;
     }
     seed = finiteStart();
@@ -522,8 +587,18 @@ void Controller::startStream(Mode m, double now) {
 bool Controller::beginStop(const std::string &why, double now) {
   resume_mode_ = streaming(state_.mode) ? state_.mode : Mode::Holding;
   if (state_.mode == Mode::Impedance || state_.mode == Mode::Holding) {
-    reference_ = state_.feedback.q;
-    velocity_ = state_.feedback.dq;
+    reference_ = boundedFeedback();
+    // Ignore spurious velocity only after an entire window of encoder-scale
+    // position stability. Real travel, including slow motion near a joint
+    // bound, must retain measured velocity for the braking-path check.
+    if (state_.mode == Mode::Holding && positions_.size() >= 2 &&
+        positions_.back().time - positions_.front().time >=
+            config_.stationary_window - 1e-9 &&
+        positionRange().maxCoeff() <= config_.joint_limit_tolerance &&
+        stationary(config_.start_velocity_tolerance))
+      velocity_.setZero();
+    else
+      velocity_ = state_.feedback.dq;
     acceleration_.setZero();
     impedance_reference_ = model_.fk(state_.feedback.q);
   }
@@ -558,7 +633,8 @@ bool Controller::beginStop(const std::string &why, double now) {
   ++generation_;
   return true;
 }
-Output Controller::step(const Feedback &feedback, double now) {
+Output Controller::step(const Feedback &feedback, double now,
+                        std::string_view transport_error) {
   auto began = Clock::now();
   std::lock_guard<std::mutex> lock(mutex_);
   Output out;
@@ -590,6 +666,7 @@ Output Controller::step(const Feedback &feedback, double now) {
   last_step_ = now;
   try {
     if (!std::isfinite(now) || dt <= 0 || dt > config_.feedback_timeout) {
+      positions_.clear();
       if (state_.mode != Mode::Disabled)
         fault("control clock/deadline failure");
       reject_operations();
@@ -603,7 +680,10 @@ Output Controller::step(const Feedback &feedback, double now) {
       state_.feedback = feedback;
     state_.feedback.fresh = new_feedback;
     if (feedback.transport_fault && state_.mode != Mode::Disabled) {
-      fault("transport send/backlog fault");
+      positions_.clear();
+      fault(transport_error.empty()
+                ? "transport send/backlog fault"
+                : "transport fault: " + std::string(transport_error));
       reject_operations();
       return out;
     }
@@ -613,7 +693,7 @@ Output Controller::step(const Feedback &feedback, double now) {
         f.received_at <= now &&
         now - f.received_at <= config_.feedback_timeout && f.q.allFinite() &&
         f.dq.allFinite() && f.tau.allFinite() &&
-        model_.withinLimits(f.q, -0.02) &&
+        model_.withinLimits(f.q, -config_.joint_limit_tolerance) &&
         (f.dq.cwiseAbs().array() <= 1.25 * config_.velocity.array()).all() &&
         !f.motor_fault && !feedback.transport_fault &&
         (!f.has_gripper ||
@@ -622,10 +702,16 @@ Output Controller::step(const Feedback &feedback, double now) {
           f.gripper_q <= 0.02));
     state_.feedback_valid = valid;
     if (!valid) {
+      positions_.clear();
       if (state_.mode != Mode::Disabled && state_.mode != Mode::Fault)
         fault("feedback stale, invalid or device fault");
       reject_operations();
       return out;
+    }
+    if (new_feedback) {
+      if (!positions_.empty() && f.received_at <= positions_.back().time)
+        positions_.clear();
+      recordPosition(f);
     }
     state_.tcp = model_.fk(f.q);
     auto clearance = model_.clearanceSample(f.q);
@@ -646,8 +732,8 @@ Output Controller::step(const Feedback &feedback, double now) {
         ++generation_;
         last_torque_.setZero();
       } else if (op == Operation::Enable && state_.mode == Mode::Disabled &&
-                 f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
-        reference_ = f.q;
+                 stationary(config_.start_velocity_tolerance)) {
+        reference_ = boundedFeedback();
         velocity_.setZero();
         acceleration_.setZero();
         gripper_target_ = f.gripper_q;
@@ -658,8 +744,8 @@ Output Controller::step(const Feedback &feedback, double now) {
                  (moving(state_.mode) || state_.mode == Mode::Holding))
         beginStop("user stop", now);
       else if (op == Operation::Resume && state_.mode == Mode::AwaitResume &&
-               f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
-        reference_ = f.q;
+               stationary(config_.start_velocity_tolerance)) {
+        reference_ = boundedFeedback();
         velocity_.setZero();
         acceleration_.setZero();
         if (resume_mode_ == Mode::Holding) {
@@ -669,13 +755,13 @@ Output Controller::step(const Feedback &feedback, double now) {
         } else
           startStream(resume_mode_, now);
       } else if (op == Operation::Resume && state_.mode == Mode::Fault &&
-                 f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
+                 stationary(config_.start_velocity_tolerance)) {
         state_.mode = Mode::Disabled;
         state_.reason = "fault acknowledged; ready for a new goal or enable";
         ++generation_;
       } else if (op == Operation::Hold && state_.mode == Mode::AwaitResume &&
-                 f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
-        reference_ = f.q;
+                 stationary(config_.start_velocity_tolerance)) {
+        reference_ = boundedFeedback();
         velocity_.setZero();
         acceleration_.setZero();
         state_.mode = Mode::Holding;
@@ -817,11 +903,11 @@ Output Controller::step(const Feedback &feedback, double now) {
     velocity_ = next_v;
     acceleration_ = next_a;
     if (state_.mode == Mode::Stopping && now - motion_at_ >= duration_ &&
-        f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
+        stationary(config_.velocity_tolerance)) {
       state_.mode = Mode::AwaitResume;
       velocity_.setZero();
       acceleration_.setZero();
-      reference_ = f.q;
+      reference_ = boundedFeedback();
     }
     if (finiteMotion(state_.mode)) {
       if (now - motion_at_ >= duration_) {
@@ -832,11 +918,10 @@ Output Controller::step(const Feedback &feedback, double now) {
           reached &=
               tcp_error.head<3>().norm() < config_.tcp_position_tolerance &&
               tcp_error.tail<3>().norm() < config_.tcp_orientation_tolerance;
-        if (reached &&
-            f.dq.cwiseAbs().maxCoeff() < config_.velocity_tolerance) {
+        if (reached && stationary(config_.velocity_tolerance)) {
           if (settled_at_ == 0)
-            settled_at_ = now;
-          if (now - settled_at_ > 0.1) {
+            settled_at_ = f.received_at;
+          if (f.received_at - settled_at_ > 0.1) {
             event(state_.active_id, Outcome::Succeeded,
                   "measured target reached");
             state_.active_id = 0;
@@ -846,7 +931,21 @@ Output Controller::step(const Feedback &feedback, double now) {
         } else
           settled_at_ = 0;
         if (now - motion_at_ > duration_ + config_.settle_timeout) {
-          fault("measured target settle timeout");
+          std::ostringstream detail;
+          detail << "measured target settle timeout: joint_error_max="
+                 << (f.q - reference_).cwiseAbs().maxCoeff()
+                 << " rad (limit=" << config_.position_tolerance << ")";
+          if (state_.mode == Mode::PoseGoal ||
+              state_.mode == Mode::CartesianPath)
+            detail << ", tcp_position_error=" << tcp_error.head<3>().norm()
+                   << " m (limit=" << config_.tcp_position_tolerance
+                   << "), tcp_orientation_error=" << tcp_error.tail<3>().norm()
+                   << " rad (limit=" << config_.tcp_orientation_tolerance << ")";
+          detail << ", stationary=" << stationary(config_.velocity_tolerance)
+                 << ", measured_q=[" << f.q.transpose() << "], reference_q=["
+                 << reference_.transpose() << "], last_command_torque=["
+                 << last_torque_.transpose() << "] Nm";
+          fault(detail.str());
           return out;
         }
       }
@@ -888,11 +987,18 @@ Output Controller::step(const Feedback &feedback, double now) {
     out.enabled = true;
     out.q = reference_;
     out.dq = velocity_;
+    if (state_.mode != Mode::Impedance) {
+      out.kp = config_.mcu_kp;
+      out.kd = config_.mcu_kd;
+    }
     if (f.has_gripper) {
       double step = 0.4 * config_.period;
-      double target = gripper_requested_ ? gripper_target_ : f.gripper_q;
-      out.gripper_q =
-          f.gripper_q + std::clamp(target - f.gripper_q, -step, step);
+      // Feedback permits encoder error around the endpoints. Keep the raw
+      // measurement for telemetry, but never copy it into an invalid command.
+      const double current = std::clamp(f.gripper_q, -1.0, 0.0);
+      const double target = gripper_requested_ ? gripper_target_ : current;
+      out.gripper_q = std::clamp(
+          current + std::clamp(target - current, -step, step), -1.0, 0.0);
       out.gripper_kp = 8;
       out.gripper_kd = 0.5;
     }
@@ -908,7 +1014,11 @@ Output Controller::step(const Feedback &feedback, double now) {
 }
 Snapshot Controller::snapshot() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return state_;
+  auto snapshot = state_;
+  snapshot.reference_position = reference_;
+  snapshot.reference_velocity = velocity_;
+  snapshot.commanded_torque = last_torque_;
+  return snapshot;
 }
 std::vector<Event> Controller::events() {
   std::lock_guard<std::mutex> lock(mutex_);

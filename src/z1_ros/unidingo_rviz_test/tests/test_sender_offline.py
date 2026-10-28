@@ -58,6 +58,14 @@ class PoseGoal:
         self.header = Header()
 
 
+class JointGoal(PoseGoal):
+    def __init__(self):
+        super().__init__()
+        self.command_id = 0
+        self.positions = []
+        self.speed_scale = 1.0
+
+
 class ControlCommand(PoseGoal):
     ENABLE, DISABLE, STOP, RESUME, JOINT_STREAM, POSE_STREAM, IMPEDANCE, HOLD = range(8)
 
@@ -76,7 +84,7 @@ class JointState:
 
 
 class Marker:
-    SPHERE, TEXT_VIEW_FACING, ADD = 2, 9, 0
+    CUBE, SPHERE, TEXT_VIEW_FACING, ADD = 1, 2, 9, 0
 
     def __init__(self, **kwargs):
         self.header, self.pose = Header(), pose()
@@ -91,11 +99,11 @@ class MarkerArray:
 
 class InteractiveMarker:
     def __init__(self):
-        self.header, self.controls = Header(), []
+        self.header, self.controls, self.pose = Header(), [], pose()
 
 
 class InteractiveMarkerControl:
-    MENU, ROTATE_AXIS, MOVE_AXIS, FIXED = 1, 5, 3, 1
+    BUTTON, MENU, ROTATE_AXIS, MOVE_AXIS, FIXED = 2, 1, 5, 3, 1
 
     def __init__(self, **kwargs):
         self.orientation = NS(x=0, y=0, z=0, w=0)
@@ -104,7 +112,7 @@ class InteractiveMarkerControl:
 
 
 class Feedback:
-    POSE_UPDATE, MOUSE_UP = 1, 5
+    POSE_UPDATE, BUTTON_CLICK, MOUSE_UP = 1, 3, 5
 
 
 class Publisher:
@@ -145,7 +153,7 @@ def load_sender():
     module('tf2_ros', Buffer=Mock, TransformListener=Mock, TransformException=LookupError)
     module('tf2_geometry_msgs')
     module('geometry_msgs')
-    module('geometry_msgs.msg', PoseStamped=PoseStamped)
+    module('geometry_msgs.msg', Pose=globals()['pose'], PoseStamped=PoseStamped)
     module('interactive_markers')
     module('interactive_markers.interactive_marker_server', InteractiveMarkerServer=lambda *_args: Mock())
     module('interactive_markers.menu_handler', MenuHandler=Menu)
@@ -158,8 +166,8 @@ def load_sender():
            InteractiveMarkerControl=InteractiveMarkerControl,
            InteractiveMarkerFeedback=Feedback, Marker=Marker, MarkerArray=MarkerArray)
     module('z1_msgs')
-    module('z1_msgs.msg', ControlCommand=ControlCommand, MotionResult=MotionResult,
-           PoseGoal=PoseGoal, Status=Status)
+    module('z1_msgs.msg', ControlCommand=ControlCommand, JointGoal=JointGoal,
+           MotionResult=MotionResult, PoseGoal=PoseGoal, Status=Status)
     path = Path(__file__).resolve().parents[1] / 'scripts/interactive_tcp_test.py'
     spec = importlib.util.spec_from_file_location('tcp_sender_under_test', path)
     sender = importlib.util.module_from_spec(spec)
@@ -315,6 +323,21 @@ class SenderDecisions(unittest.TestCase):
         self.assertIn('pan_tilt_yaw_joint', static_display.name)
         self.assertIn('front_left_wheel', static_display.name)
         self.assertEqual(static_display.position, [0.0] * len(static_display.name))
+
+    def test_home_both_arms_and_home_button(self):
+        self.node.home_both()
+        for side in ('left', 'right'):
+            arm = self.node.arms[side]
+            self.assertTrue(arm.joint_goal_pub.messages)
+            sent = arm.joint_goal_pub.messages[-1]
+            self.assertEqual(sent.positions, list(SENDER.HOME_JOINTS))
+            self.assertEqual(sent.speed_scale, CONFIG['speed_scale'])
+        # Test 3D button click event
+        self.node.arms['left'].joint_goal_pub.messages.clear()
+        self.node.arms['right'].joint_goal_pub.messages.clear()
+        self.node.on_home_button(NS(event_type=Feedback.BUTTON_CLICK))
+        self.assertTrue(self.node.arms['left'].joint_goal_pub.messages)
+        self.assertTrue(self.node.arms['right'].joint_goal_pub.messages)
 
 
 if __name__ == '__main__':

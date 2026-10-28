@@ -49,6 +49,7 @@ struct Feedback {
 };
 struct Output {
   Vec q{Vec::Zero()}, dq{Vec::Zero()}, tau{Vec::Zero()};
+  Vec kp{Vec::Zero()}, kd{Vec::Zero()};
   bool enabled{};
   double gripper_q{}, gripper_kp{}, gripper_kd{};
 };
@@ -70,6 +71,9 @@ struct Config {
       impedance_gain_time_constant{0.1};
   double position_tolerance{0.015}, velocity_tolerance{0.03},
       settle_timeout{3.0};
+  // Measurement allowance only: commanded targets and trajectories stay bounded.
+  double joint_limit_tolerance{0.001};
+  double start_velocity_tolerance{0.03}, stationary_window{0.1};
   double tcp_position_tolerance{0.005}, tcp_orientation_tolerance{0.025};
   Vec velocity{Vec::Constant(0.8)}, acceleration{Vec::Constant(1.5)},
       jerk{Vec::Constant(8)};
@@ -77,6 +81,8 @@ struct Config {
       torque_rate{Vec::Constant(1000)};
   Vec kp{(Vec() << 50, 80, 60, 35, 20, 20).finished()},
       kd{(Vec() << 8, 12, 10, 6, 3, 3).finished()};
+  Vec mcu_kp{(Vec() << 500, 600, 500, 400, 300, 200).finished()},
+      mcu_kd{Vec::Constant(5)};
   Vec stiffness{(Vec() << 30, 30, 30, 0.2, 0.2, 0.2).finished()};
   Vec damping{(Vec() << 4, 4, 4, 0.02, 0.02, 0.02).finished()};
 };
@@ -85,6 +91,9 @@ struct Snapshot {
   bool feedback_valid{};
   Feedback feedback;
   Pose tcp{Pose::Identity()};
+  // Host reference and computed torque, not an MCU execution acknowledgment.
+  Vec reference_position{Vec::Zero()}, reference_velocity{Vec::Zero()},
+      commanded_torque{Vec::Zero()};
   uint64_t session{}, active_id{};
   std::string reason;
   double collision_distance{}, compute_time{}, loop_period{}, max_loop_period{};

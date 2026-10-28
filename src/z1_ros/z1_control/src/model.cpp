@@ -1,6 +1,7 @@
 #include "model_internal.hpp"
 #include <Eigen/Cholesky>
 #include <Eigen/SVD>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <openssl/evp.h>
@@ -207,10 +208,21 @@ Vec Model::differentialIk(const Vec &q, const Pose &t, double speed,
                              .ldlt()
                              .solve(desired);
 }
-bool Model::ik(const Pose &target, const Vec &seed, Vec &result) {
-  if (!validPose(target) || !withinLimits(seed))
+bool Model::ik(const Pose &target, const Vec &seed, Vec &result,
+               double seed_tolerance, std::string *failure) {
+  auto fail = [failure](const std::string &reason) {
+    if (failure)
+      *failure = reason;
     return false;
-  Vec q = seed;
+  };
+  if (failure)
+    failure->clear();
+  if (!validPose(target))
+    return fail("IK invalid target pose");
+  if (!std::isfinite(seed_tolerance) || seed_tolerance < 0 ||
+      !withinLimits(seed, -seed_tolerance))
+    return fail("IK seed outside joint limit tolerance");
+  Vec q = seed.cwiseMax(lower()).cwiseMin(upper());
   for (int i = 0; i < 300; ++i) {
     Jacobian J;
     Vec e = poseError(impl_->toolKinematics(q, J), target);
@@ -225,6 +237,11 @@ bool Model::ik(const Pose &target, const Vec &seed, Vec &result) {
       step *= 0.15 / step.norm();
     q = (q + step).cwiseMax(lower()).cwiseMin(upper());
   }
-  return false;
+  const Vec residual = poseError(fk(q), target);
+  std::ostringstream reason;
+  reason << "IK did not converge after 300 iterations: position_error="
+         << residual.head<3>().norm() << " m, orientation_error="
+         << residual.tail<3>().norm() << " rad";
+  return fail(reason.str());
 }
 } // namespace z1

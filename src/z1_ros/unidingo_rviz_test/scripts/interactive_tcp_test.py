@@ -8,7 +8,7 @@ import time
 import rospy
 import tf2_geometry_msgs  # Registers PoseStamped transformations with tf2.
 import tf2_ros
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Pose, PoseStamped
 from interactive_markers.interactive_marker_server import InteractiveMarkerServer
 from interactive_markers.menu_handler import MenuHandler
 from sensor_msgs.msg import JointState
@@ -17,7 +17,10 @@ from visualization_msgs.msg import (
     InteractiveMarker, InteractiveMarkerControl, InteractiveMarkerFeedback,
     Marker, MarkerArray,
 )
-from z1_msgs.msg import ControlCommand, MotionResult, PoseGoal, Status
+from z1_msgs.msg import ControlCommand, JointGoal, MotionResult, PoseGoal, Status
+
+# Official Unitree Z1 and MoveIt SRDF Home joint configuration:
+HOME_JOINTS = (0.0, 0.0, 0.0, -0.07435, 0.0, 0.0)
 
 MODE_NAMES = ('Disabled', 'Holding', 'JointGoal', 'PoseGoal', 'JointStream',
               'PoseStream', 'Impedance', 'Stopping', 'AwaitResume', 'Fault',
@@ -49,6 +52,7 @@ class Arm:
         self.created = self.dirty = False
         self.note = 'Waiting for valid controller feedback'
         self.goal_pub = rospy.Publisher('/' + side + '_arm/pose_goal', PoseGoal, queue_size=1)
+        self.joint_goal_pub = rospy.Publisher('/' + side + '_arm/joint_goal', JointGoal, queue_size=1)
         self.control_pub = rospy.Publisher('/' + side + '_arm/control', ControlCommand, queue_size=4)
 
 
@@ -76,6 +80,7 @@ class TcpTest:
                     '/' + side + '_arm/' + topic, msg_type,
                     lambda msg, a=arm, cb=callback: cb(a, msg), queue_size=10))
         self.timer = rospy.Timer(rospy.Duration(0.1), self.tick)
+        self.create_home_button()
         rospy.loginfo('TCP test: release a TCP handle to send; speed_scale=%.2f', self.speed)
 
     def next_id(self):
@@ -157,8 +162,32 @@ class TcpTest:
         msg.command_id, msg.pose, msg.speed_scale = self.next_id(), target.pose, self.speed
         arm.goal_pub.publish(msg)
         arm.note = 'Sent id={} in {}'.format(msg.command_id, arm.base)
-        rospy.loginfo('%s %s: xyz=(%.4f, %.4f, %.4f)', arm.side, arm.note,
-                      msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+        q = msg.pose.orientation
+        rospy.loginfo('%s %s: xyz=(%.6f, %.6f, %.6f), quat_xyzw=(%.9f, %.9f, %.9f, %.9f)',
+                      arm.side, arm.note, msg.pose.position.x, msg.pose.position.y,
+                      msg.pose.position.z, q.x, q.y, q.z, q.w)
+
+    def home_arm(self, arm):
+        if arm.joint_goal_pub.get_num_connections() == 0:
+            raise ValueError('no joint_goal subscriber')
+        msg = JointGoal()
+        msg.header = Header(stamp=rospy.Time.now())
+        msg.command_id = self.next_id()
+        msg.positions = list(HOME_JOINTS)
+        msg.speed_scale = self.speed
+        arm.joint_goal_pub.publish(msg)
+        arm.note = 'Sent HOME joint goal id={}'.format(msg.command_id)
+        rospy.loginfo('%s arm: sent HOME joint goal (id=%s, positions=%s)',
+                      arm.side, msg.command_id, msg.positions)
+
+    def home_both(self):
+        rospy.loginfo('Homing both arms to official Home positions %s...', HOME_JOINTS)
+        for arm in self.arms.values():
+            try:
+                self.home_arm(arm)
+            except Exception as error:
+                arm.note = 'Home failed: {}'.format(error)
+                rospy.logwarn('%s arm home failed: %s', arm.side, error)
 
     def operate(self, arm, operation):
         if arm.control_pub.get_num_connections() == 0:
@@ -182,6 +211,8 @@ class TcpTest:
                 if msg.header.frame_id != self.frame or not valid_pose(msg.pose):
                     raise ValueError('invalid marker frame or pose')
                 arm.target = PoseStamped(header=copy.deepcopy(msg.header), pose=copy.deepcopy(msg.pose))
+                self.server.setPose(arm.name, arm.target.pose, arm.target.header)
+                self.server.applyChanges()
                 if msg.event_type == InteractiveMarkerFeedback.POSE_UPDATE:
                     arm.dirty = True
                 elif arm.dirty:
@@ -215,6 +246,8 @@ class TcpTest:
         self.server.insert(marker, lambda msg: self.feedback(arm, msg))
         menu = MenuHandler()
         for label, action in (
+                ('>>> HOME THIS ARM <<<', lambda: self.home_arm(arm)),
+                ('>>> HOME BOTH ARMS <<<', self.home_both),
                 ('Send target once', lambda: self.send(arm)),
                 ('Reset target to measured TCP', lambda: self.reset(arm)),
                 ('ENABLE (Disabled -> Holding)', lambda: self.operate(arm, ControlCommand.ENABLE)),
@@ -226,6 +259,46 @@ class TcpTest:
         menu.apply(self.server, arm.name)
         arm.menu, arm.created = menu, True
         self.server.applyChanges()
+
+    def create_home_button(self):
+        marker = InteractiveMarker()
+        marker.header.frame_id = self.frame
+        marker.name = 'home_both_arms_button'
+        marker.description = 'One-click: HOME BOTH ARMS'
+        marker.scale = 0.25
+        marker.pose = Pose()
+        marker.pose.position.x = 0.0
+        marker.pose.position.y = 0.0
+        marker.pose.position.z = 0.75
+        marker.pose.orientation.w = 1.0
+
+        control = InteractiveMarkerControl(name='button_control', interaction_mode=InteractiveMarkerControl.BUTTON)
+        control.always_visible = True
+
+        box = Marker(type=Marker.CUBE)
+        box.pose.orientation.w = 1.0
+        box.scale.x = 0.16
+        box.scale.y = 0.36
+        box.scale.z = 0.06
+        box.color.r, box.color.g, box.color.b, box.color.a = 0.1, 0.75, 0.25, 0.95
+
+        text = Marker(type=Marker.TEXT_VIEW_FACING)
+        text.pose.position.z = 0.07
+        text.pose.orientation.w = 1.0
+        text.scale.z = 0.05
+        text.color.r = text.color.g = text.color.b = text.color.a = 1.0
+        text.text = 'HOME BOTH ARMS'
+
+        control.markers.append(box)
+        control.markers.append(text)
+        marker.controls.append(control)
+
+        self.server.insert(marker, self.on_home_button)
+        self.server.applyChanges()
+
+    def on_home_button(self, msg):
+        if msg.event_type == InteractiveMarkerFeedback.BUTTON_CLICK:
+            self.home_both()
 
     def tick(self, _event):
         with self.lock:

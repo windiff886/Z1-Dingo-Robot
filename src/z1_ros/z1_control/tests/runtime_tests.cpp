@@ -160,6 +160,56 @@ void controlledShutdown(const ModelConfig &model) {
                 config.period * 0.1,
             "controlled stop used a burst of unpaced updates");
 }
+
+void transportFailureDetails(const ModelConfig &model) {
+  struct FailingTransport final : Transport {
+    RecordedTransport delegate;
+    std::atomic<bool> fail{false};
+    int kind;
+    explicit FailingTransport(int value) : kind(value) {}
+    Exchange exchange(const Output &output, double now) override {
+      if (fail.exchange(false)) {
+        if (kind == 0)
+          throw std::runtime_error("invalid gripper command: position=1.18e-05");
+        Exchange error;
+        error.feedback.transport_fault = true;
+        error.error = kind == 1 ? "receive backlog limit exceeded"
+                               : "MCU packet send failed";
+        return error;
+      }
+      return delegate.exchange(output, now);
+    }
+  };
+  for (int kind = 0; kind < 3; ++kind) {
+    auto transport = std::make_unique<FailingTransport>(kind);
+    auto *injected = transport.get();
+    Runtime runtime(model, Config{}, std::move(transport));
+    runtime.start();
+    waitFor([&] { return runtime.controller().snapshot().feedback_valid; },
+            "missing feedback before transport fault test");
+    auto target = runtime.controller().snapshot().feedback.q;
+    target[0] += .04;
+    require(runtime.controller().goal(100, target, .05),
+            "goal rejected before injected transport fault");
+    injected->fail = true;
+    waitFor([&] { return runtime.controller().snapshot().mode == Mode::Fault; },
+            "transport failure did not fault");
+    runtime.stop();
+    const std::string expected = kind == 0 ? "invalid gripper command"
+                                : kind == 1 ? "receive backlog limit exceeded"
+                                            : "MCU packet send failed";
+    require(runtime.controller().snapshot().reason.find(expected) !=
+                std::string::npos,
+            "transport fault detail was discarded from status");
+    bool failed = false;
+    for (const auto &event : runtime.controller().events())
+      failed |= event.id == 100 && event.outcome == Outcome::Failed &&
+                event.reason.find(expected) != std::string::npos;
+    require(failed, "transport fault detail missing from motion result");
+    require(!injected->delegate.samples.back().enabled,
+            "transport failure did not restore passive output");
+  }
+}
 } // namespace
 int main(int argc, char **argv) {
   try {
@@ -168,6 +218,7 @@ int main(int argc, char **argv) {
     overrunSkipsSlots(model);
     schedulerSettings(model);
     controlledShutdown(model);
+    transportFailureDetails(model);
     std::cout << "runtime timing and shutdown tests passed\n";
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

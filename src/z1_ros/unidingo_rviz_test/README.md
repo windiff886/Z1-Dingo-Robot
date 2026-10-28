@@ -70,11 +70,16 @@ roslaunch unidingo_rviz_test rviz_tcp_test.launch
 
 显示的 TCP、逆解和几何距离都基于当前反馈角，绝对末端精度需要独立验证。TCP 目标使用关节空间轨迹，手柄的小幅位移不保证每个关节都只移动小角度。
 
+零位附近的编码器小幅越界由控制器统一按 `joint_limit_tolerance` 处理（默认 1 mrad），目标本身仍必须在模型限位内。静止判定同时参考新位置反馈，原始速度有尖峰时可用默认 100 ms 位置窗口确认静止，无需提高运动速度上限。参数与判定方式见 [接口契约](../INTERFACES.md)。
+
+发送日志包含基座坐标系下的 XYZ 和完整 `quat_xyzw`，便于重现具体目标。拖动后的手柄状态同步发布到 `targets/update_full`，新连接的 RViz 或诊断订阅者可读到当前手柄位姿；它表示编辑目标，实际提交目标以发送日志或 `pose_goal` 消息为准。
+
 1. 等待对应臂的 TCP 手柄出现；初始化需要有效反馈及 TF。状态文字会提示 `FEEDBACK STALE / INVALID`。
 2. 拖动平移箭头或旋转圆环，松开鼠标提交目标，默认速度比例为 `0.05`。无需先 ENABLE。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
-3. 需要只保持时，可选择 `ENABLE (Disabled -> Holding)`；需要停止时选择 `STOP`。
-4. 进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 重置手柄。
-5. Fault 原因处理后，选择 `Acknowledge FAULT`；进入 Disabled 后可直接提交新目标。`DISABLE (passive output)` 用于失能。
+3. **一键回 Home**：在底盘正上方居中放置了绿色的 `HOME BOTH ARMS` 3D 交互按钮，鼠标左键单击即可一键命令两臂平稳回到官方标准原点位姿（`[0, 0, 0, -0.07435, 0, 0]` rad）；亦可在左/右机械臂末端手柄的小球上点击鼠标右键，在弹出菜单中选择 `>>> HOME BOTH ARMS <<<` 或 `>>> HOME THIS ARM <<<`。
+4. 需要只保持时，可选择 `ENABLE (Disabled -> Holding)`；需要停止时选择 `STOP`。
+5. 进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 重置手柄。
+6. Fault 原因处理后，选择 `Acknowledge FAULT`；进入 Disabled 后可直接提交新目标。`DISABLE (passive output)` 用于失能。
 
 ## YAML 配置
 

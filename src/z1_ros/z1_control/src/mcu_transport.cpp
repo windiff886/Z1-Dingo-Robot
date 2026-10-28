@@ -63,15 +63,24 @@ Exchange McuTransport::exchange(const Output &output, double) {
   }
   LowLevelCmd cmd;
   if (!output.q.allFinite() || !output.dq.allFinite() ||
-      !output.tau.allFinite() || !std::isfinite(output.gripper_q) ||
-      output.gripper_q < -1 || output.gripper_q > 0)
-    throw std::runtime_error("invalid low-level command");
-  // Feedback PD is owned by the host core: firmware joint Kp/Kd remain zero.
+      !output.tau.allFinite() || !output.kp.allFinite() ||
+      !output.kd.allFinite())
+    throw std::runtime_error("nonfinite low-level arm command");
+  if (!std::isfinite(output.gripper_q) || output.gripper_q < -1 ||
+      output.gripper_q > 0) {
+    std::ostringstream detail;
+    detail << "invalid gripper command: position=" << output.gripper_q
+           << " rad, allowed range=[-1, 0]";
+    throw std::runtime_error(detail.str());
+  }
+  // Firmware position gains and feedforward torque are dispatched to MCU.
   if (output.enabled)
     for (int i = 0; i < 6; ++i) {
       cmd.q[i] = output.q[i];
       cmd.dq[i] = output.dq[i];
       cmd.tau[i] = output.tau[i];
+      cmd.Kp[i] = output.kp[i];
+      cmd.Kd[i] = output.kd[i];
     }
   if (output.enabled && p.observer.motor_count == 8) {
     cmd.q[6] = output.gripper_q;

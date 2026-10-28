@@ -27,7 +27,8 @@ public:
   Jacobian jacobian(const Vec &);
   Vec inverseDynamics(const Vec &, const Vec &, const Vec &);
   Vec forwardDynamics(const Vec &, const Vec &, const Vec &);
-  bool ik(const Pose &, const Vec &seed, Vec &result);
+  bool ik(const Pose &, const Vec &seed, Vec &result,
+          double seed_tolerance = 0.001, std::string *failure = nullptr);
   Vec differentialIk(const Vec &, const Pose &target, double speed,
                      const Vec &twist = Vec::Zero());
   Clearance clearance(const Vec &);

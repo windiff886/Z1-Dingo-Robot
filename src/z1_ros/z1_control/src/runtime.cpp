@@ -108,10 +108,11 @@ void Runtime::start() {
         e = transport_->exchange(out, std::chrono::duration<double>(
                                           exchange_began.time_since_epoch())
                                           .count());
-      } catch (const std::exception &) {
+      } catch (const std::exception &error) {
         exchanged = false;
         e.feedback.fresh = false;
         e.feedback.transport_fault = true;
+        e.error = std::string("transport exception: ") + error.what();
       }
       record(timing_.exchange_ns, timing_.max_exchange_ns,
              std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -119,9 +120,12 @@ void Runtime::start() {
                  .count());
       // Receive time belongs to the transport; evaluate validity after the
       // bounded exchange.
-      if (!e.sent)
+      if (!e.sent) {
         e.feedback.transport_fault = true;
-      out = controller_.step(e.feedback, monotonicTime());
+        if (e.error.empty())
+          e.error = "MCU packet send failed";
+      }
+      out = controller_.step(e.feedback, monotonicTime(), e.error);
       if (!e.sent)
         out = Output{};
       timing_.cycles.fetch_add(1, std::memory_order_relaxed);

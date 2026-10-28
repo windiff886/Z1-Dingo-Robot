@@ -22,7 +22,11 @@ acceleration: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
 jerk: [8, 8, 8, 8, 8, 8]
 torque: [20, 30, 20, 12, 8, 8]
 torque_rate: [1000, 1000, 1000, 1000, 1000, 1000]
-# Computed torque: kp in s^-2, kd in s^-1 (not MCU position gains).
+# MCU firmware joint position and velocity gains (hardware closed-loop position control):
+mcu_kp: [500, 600, 500, 400, 300, 200]
+mcu_kd: [5, 5, 5, 5, 5, 5]
+
+# Host computed torque gains (must be strictly positive):
 kp: [50, 80, 60, 35, 20, 20]
 kd: [8, 12, 10, 6, 3, 3]
 stiffness: [30, 30, 30, 0.2, 0.2, 0.2]
@@ -31,6 +35,13 @@ gravity: [0, 0, -9.81]
 tool_frame: tool
 position_tolerance: 0.015
 velocity_tolerance: 0.03
+# Encoder allowance at model bounds, in rad; targets remain strictly bounded.
+joint_limit_tolerance: 0.001
+# Start/resume tolerance is independent of the final settling velocity tolerance.
+start_velocity_tolerance: 0.03
+# Use fresh measured position travel over this many seconds to reject motion,
+# without treating raw velocity spikes at a fixed position as real movement.
+stationary_window: 0.1
 settle_timeout: 3.0
 tcp_position_tolerance: 0.005
 tcp_orientation_tolerance: 0.025

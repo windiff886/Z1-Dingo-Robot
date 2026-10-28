@@ -32,7 +32,8 @@ public:
   void operate(Operation, uint64_t id = 0);
   bool gains(const Vec &stiffness, const Vec &damping);
   bool gripper(double position);
-  Output step(const Feedback &, double now);
+  Output step(const Feedback &, double now,
+              std::string_view transport_error = {});
   Snapshot snapshot() const;
   std::vector<Event> events();
 
@@ -46,6 +47,11 @@ private:
                    Mode, const Pose *endpoint = nullptr);
   Input input(const Vec &, const Vec &, const Vec &) const;
   bool readyForFiniteMotion() const;
+  std::string finiteMotionRejection() const;
+  bool stationary(double velocity_tolerance) const;
+  Vec positionRange() const;
+  void recordPosition(const Feedback &);
+  Vec boundedFeedback() const;
   Vec finiteStart() const;
   bool jointPathWithinLimits(const Trajectory &, Model &, std::string *failure);
   bool beginStop(const std::string &, double);
@@ -57,6 +63,11 @@ private:
   mutable std::mutex mutex_;
   std::mutex planning_mutex_;
   Snapshot state_;
+  struct PositionSample {
+    double time;
+    Vec position;
+  };
+  std::deque<PositionSample> positions_;
   std::deque<Event> events_;
   std::deque<std::pair<Operation, uint64_t>> operations_;
   ruckig::Ruckig<6> generator_;

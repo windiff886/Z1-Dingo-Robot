@@ -16,6 +16,12 @@
 
 所有类型位于 [z1_msgs/msg](z1_msgs/msg)。
 
+测量与规划边界：`joint_limit_tolerance` 默认 `0.001 rad`，用于容纳编码器在模型限位附近的小幅偏差；超出这项容差的反馈仍无效。原始 q/dq 继续用于状态发布、FK 和动力学。由实测位置建立规划/保持参考时，只将这项容差内的越界量投影到模型边界，有限目标、流式目标、轨迹多项式及制动路径仍按原模型限位检查。独立 `Model::ik` 同样允许默认 1 mrad 的初值误差，并将初值限制到模型内；它不放宽最终关节解的范围。
+
+静止判断：`start_velocity_tolerance` 默认 `0.03 rad/s`，用于 Disabled 起步、ENABLE、HOLD 和恢复；`velocity_tolerance` 默认同值，用于到达/停止完成。两者独立配置。原始速度较小且相邻新反馈的位置变化也满足速度阈值时可立即通过；原始速度有尖峰时，需积累 `stationary_window`（默认 100 ms）内的新位置反馈，位置范围/窗口时长及最近相邻位置变化都必须满足阈值。窗口内使用最大最小位置范围，避免只比较首尾而漏掉往返运动。没有新反馈不累积窗口，反馈无效后清除历史；原始速度异常、电机故障、反馈超时仍独立检查。这项处理只用于静止判定，不替换动力学控制中的原始速度。
+
+夹爪原始反馈允许既有的 `[-1.02, 0.02] rad` 测量范围，实际命令及用户目标仍限制为 `[-1, 0] rad`。保持或生成夹爪参考时先投影测量到命令范围，再应用速度限制，避免零位的微小正偏差生成非法命令；原始夹爪反馈保持不变。传输异常会将底层详情保留到 `status.reason` 和失败 `result.reason`，可区分命令校验异常、发送失败和接收积压。
+
 | Topic | 消息 / 字段 | 约束 |
 | --- | --- | --- |
 | `joint_goal` | JointGoal：command_id、positions[6]、speed_scale | ID 正数、递增；speed_scale `(0,1]`；Disabled/Holding 接收 |
@@ -51,13 +57,16 @@
 | Topic | 内容 |
 | --- | --- |
 | `joint_states` | 原始实测 q/dq/tau；旧测量仍可能保留发布，使用者必须结合 status.feedback_valid/age 判定有效性 |
+| `commanded_joint_states` | 主机最近生成的六轴参考 q/dq 及计算力矩（effort），与 joint_states 同名、同顺序；不是发包或驱动执行回执，必须结合 status.mode 使用 |
 | `tcp_pose` | 只在反馈有效时发布，frame_id 为基座；夹爪位移不改变固定 TCP 定义 |
 | `status` | mode、reason、model_revision、session_id、active_command_id、feedback_sequence、feedback_valid、new_feedback、feedback_age、has_gripper、collision_distance/pair、compute_time、loop_period/max_loop_period、overruns；另含主机周期数、漏过时隙、收发耗时、唤醒迟到及线程设置结果 |
 | `result` | command_id + ACCEPTED/SUCCEEDED/REJECTED/CANCELED/STOPPED/FAILED + reason |
 
 模式数值为 Disabled=0、Holding=1、JointGoal=2、PoseGoal=3、JointStream=4、PoseStream=5、Impedance=6、Stopping=7、AwaitResume=8、Fault=9、JointTrajectory=10、CartesianPath=11。旧数值保持不变。
 
-有限目标接受后才会有最终结果；最终成功需实际 q/dq 满足容差并稳定 100 ms，末端目标还需实际 TCP 满足位姿容差。到达超期、IK/轨迹失败不报成功。持续流没有“每帧到达”承诺，拒绝的流式帧在 ROS 日志报告；模式和停止原因通过 status 判断。result 为有界事件流（128），发布者应及时订阅，不能当永久审计日志。
+有限目标接受后才会有最终结果；最终成功需实际 q 满足容差、静止判定连续满足 100 ms（按新反馈接收时刻计时），末端目标还需实际 TCP 满足位姿容差。到达超期、IK/轨迹失败不报成功。持续流没有“每帧到达”承诺，拒绝的流式帧在 ROS 日志报告；模式和停止原因通过 status 判断。result 为有界事件流（128），发布者应及时订阅，不能当永久审计日志。
+
+到达超时的 reason 保留触发瞬间的最大关节误差、TCP 位姿误差（适用时）、静止判定、实测/参考关节角及上周期命令力矩，便于区分参考轨迹完成与真机跟踪完成。超时进入 Fault 后输出转为被动，后续的实测位置可能回落；此时不能用新的零力矩反馈反推运动期间是否输出过力矩。`commanded_joint_states` 的参考位置在 Fault 后保留，而计算力矩清零，运动期间需要同时记录参考和反馈。
 
 默认超时：反馈 80 ms、流式 200 ms。普通流式按源时间计；未来路点允许执行到最后有效路点时间再加 200 ms。收到无效/过期/旧会话/倒序目标不会刷新有效期。会话初值每个进程随机生成，模式进入/停止/恢复均更新。新会话不能执行停止前或停止期间缓存，恢复后无新目标会再次超时。STOP 优先于普通排队操作；`STOPPED` 事件表示开始受控停止，实际停止完成以 `AWAIT_RESUME` 状态为准。
 

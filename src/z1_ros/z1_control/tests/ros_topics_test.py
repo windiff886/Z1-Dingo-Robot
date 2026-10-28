@@ -45,11 +45,12 @@ def main():
     try:
         rospy.init_node('z1_offline_integration', disable_signals=True)
         for address in ('127.0.0.1', '127.0.0.2'):
-            firmware.append(McuFixture(address))
+            firmware.append(McuFixture(address, has_gripper=address == '127.0.0.1',
+                                       gripper_q=1.1803553206846118e-5))
         config_dir = Path(__file__).resolve().parents[2] / 'z1_bringup/config'
         communication = yaml.safe_load((config_dir / 'communication.yaml').read_text())
         control = yaml.safe_load((config_dir / 'control.yaml').read_text())
-        states, joints, poses, results = {}, {}, {}, []
+        states, joints, poses, commands, results = {}, {}, {}, {}, []
         subscribers = []
         local_ports = set()
         for index, arm in enumerate(('left', 'right'), start=1):
@@ -59,7 +60,7 @@ def main():
                 local_port = unused_local_port()
             local_ports.add(local_port)
             ns = f'/{arm}_arm'
-            for topic, cls, store in [('status', Status, states), ('joint_states', JointState, joints), ('tcp_pose', PoseStamped, poses)]:
+            for topic, cls, store in [('status', Status, states), ('joint_states', JointState, joints), ('tcp_pose', PoseStamped, poses), ('commanded_joint_states', JointState, commands)]:
                 subscribers.append(rospy.Subscriber(ns + '/' + topic, cls, lambda m, key=arm, target=store: target.__setitem__(key, m)))
             subscribers.append(rospy.Subscriber(ns + '/result', MotionResult, lambda m: results.append(m)))
             log = open(f'/tmp/z1-{arm}-integration.log', 'w')
@@ -92,6 +93,10 @@ def main():
         assert all(s.mode == Status.DISABLED for s in states.values()), 'startup enabled motion'
         assert all(n.startswith('left_') for n in joints['left'].name)
         assert all(n.startswith('right_') for n in joints['right'].name)
+        assert states['left'].has_gripper and not states['right'].has_gripper
+        assert joints['left'].position[6] > 0, 'raw gripper encoder allowance not exercised'
+        wait(lambda: len(commands) == 2, 'missing host reference telemetry')
+        assert commands['left'].name == [f'left_joint{i}' for i in range(1, 7)]
         wait(lambda: all(s.runtime_cycles > 0 for s in states.values()), 'no runtime timing statistics')
         first = states['left'].feedback_sequence
         began = time.monotonic()
@@ -141,6 +146,8 @@ def main():
         assert abs(states['left'].trajectory_time_scale - 1) < 1e-6
         succeeded(10)
         assert abs(joints['left'].position[0] - endpoint.positions[0]) < 0.005
+        assert abs(commands['left'].position[0] - endpoint.positions[0]) < 1e-6
+        assert all(math.isfinite(v) for v in commands['left'].effort)
 
         # An intentionally short trajectory is uniformly retimed before it is
         # installed; the adapter exposes the resulting duration and scale.
@@ -245,7 +252,7 @@ def main():
             time.sleep(0.02)
         assert children[1].poll() is None and states['right'].feedback_sequence > before
         assert all(peer.commands > 0 for peer in firmware), 'MCU command path not exercised'
-        print('PASS: MCU-only startup guards, real UDP codec, ROS 1 topics, timed/retimed trajectories, continuous joint waypoints, MoveL, legacy and timed derivative streams, online impedance gains, timeout/resume and two-process isolation')
+        print('PASS: MCU-only startup guards, real UDP codec, gripper encoder noise and bounded commands, ROS 1 topics, timed/retimed trajectories, continuous joint waypoints, MoveL, legacy and timed derivative streams, online impedance gains, timeout/resume and two-process isolation')
     finally:
         for p in children:
             if p.poll() is None:
