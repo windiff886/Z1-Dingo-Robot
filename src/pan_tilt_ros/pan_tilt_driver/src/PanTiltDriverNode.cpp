@@ -37,7 +37,6 @@ class PanTiltDriverNode
 {
 public:
   PanTiltDriverNode(ros::NodeHandle nh, ros::NodeHandle private_nh);
-  ~PanTiltDriverNode();
   void JointStatePublish();
 
 protected:
@@ -45,7 +44,7 @@ protected:
   void callBackRad(const pan_tilt_msgs::PanTiltCmdRad &msg);
 
 private:
-  IQR::PanTiltDriver *pt_;
+  std::unique_ptr<IQR::PanTiltDriver> pt_;
   ros::NodeHandle nh_, private_nh_;
   ros::Subscriber cmdDegSub_;
   ros::Subscriber cmdRadSub_;
@@ -83,16 +82,7 @@ PanTiltDriverNode::PanTiltDriverNode(ros::NodeHandle nh, ros::NodeHandle private
   cmdRadSub_ = nh_.subscribe("pan_tilt_cmd_rad", 10, &PanTiltDriverNode::callBackRad, this);
 
   cout << "pan-tilt ID:" << id_ << " ,port name:" << portName_ << endl;
-  pt_ = new IQR::PanTiltDriver(id_, portName_);
-}
-
-PanTiltDriverNode::~PanTiltDriverNode()
-{
-  if (pt_)
-  {
-    delete pt_;
-    pt_ = NULL;
-  }
+  pt_.reset(new IQR::PanTiltDriver(id_, portName_));
 }
 
 void PanTiltDriverNode::JointStatePublish()

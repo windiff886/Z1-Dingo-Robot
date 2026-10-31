@@ -1,5 +1,5 @@
 # Private parameters of the rviz_tcp_test node.
-# Releasing a dragged TCP handle submits one pose goal.
+# Dragging/releasing updates preview; SEND explicitly submits one pose goal.
 # Joint-motion speed scale for pose goals, in (0, 1].
 speed_scale: 0.05
 # Maximum source-message age and time since receipt, in seconds.

@@ -3,6 +3,7 @@
 #include <Eigen/Geometry>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -53,16 +54,9 @@ struct Output {
   bool enabled{};
   double gripper_q{}, gripper_kp{}, gripper_kd{};
 };
-struct FixedBox {
-  std::string name;
-  Pose placement{Pose::Identity()};
-  Eigen::Vector3d size;
-};
 struct ModelConfig {
   std::string urdf, tool_frame{"tool"};
   Eigen::Vector3d gravity{0, 0, -9.81};
-  std::vector<std::pair<std::string, std::string>> ignored_pairs;
-  std::vector<FixedBox> fixed_boxes;
 };
 struct Config {
   double period{0.002}, feedback_timeout{0.08}, stream_timeout{0.2};
@@ -96,7 +90,9 @@ struct Snapshot {
       commanded_torque{Vec::Zero()};
   uint64_t session{}, active_id{};
   std::string reason;
-  double collision_distance{}, compute_time{}, loop_period{}, max_loop_period{};
+  // Legacy status fields: geometry is evaluated outside the control core.
+  double collision_distance{std::numeric_limits<double>::quiet_NaN()};
+  double compute_time{}, loop_period{}, max_loop_period{};
   uint64_t overruns{};
   std::string collision_pair;
   std::string model_revision;

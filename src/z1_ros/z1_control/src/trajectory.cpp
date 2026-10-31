@@ -161,9 +161,9 @@ JointTrajectory::timed(const std::vector<TrajectoryPoint> &points,
         velocities[i][axis] =
             interiorVelocity(previous_slope[axis], next_slope[axis],
                              previous_duration, next_duration);
+      if (!velocities[i].allFinite())
+        throw std::invalid_argument("trajectory derivatives overflow");
     }
-    if (!velocities[i].allFinite())
-      throw std::invalid_argument("trajectory derivatives overflow");
   }
 
   JointTrajectory result;

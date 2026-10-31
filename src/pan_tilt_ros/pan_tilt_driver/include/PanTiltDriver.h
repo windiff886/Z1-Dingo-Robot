@@ -29,6 +29,8 @@
 #include <thread>
 #include <string>
 #include <mutex>
+#include <atomic>
+#include <memory>
 #include <boost/format.hpp>
 #include "QThread.h"
 #include "modbus_rtu_master.h"
@@ -75,11 +77,11 @@ namespace IQR
 
   private:
     const uint8_t id_;
-    bool readFlage_;
+    std::atomic<bool> readFlage_;
     std::mutex mtx_;
-    PanTiltStatus st_;
+    PanTiltStatus st_{};
 
-    ModbusRTUMaster *master_;
+    std::unique_ptr<ModbusRTUMaster> master_;
   };
 } // namespace IQR
 

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -30,13 +31,13 @@ struct Arm {
   std::string result{"NOT_ATTEMPTED"}, detail;
 };
 
-unsigned integer(const YAML::Node &node, const char *name, unsigned low,
-                 unsigned high) {
-  const int value = node[name].as<int>();
-  if (value < static_cast<int>(low) || value > static_cast<int>(high))
+unsigned integer(const YAML::Node &node, const char *name, unsigned low = 1,
+                 unsigned high = std::numeric_limits<unsigned>::max()) {
+  const unsigned value = node[name].as<unsigned>();
+  if (value < low || value > high)
     throw std::runtime_error(std::string(name) +
                              " is outside its supported range");
-  return static_cast<unsigned>(value);
+  return value;
 }
 double positive(const YAML::Node &node, const char *name) {
   const double value = node[name].as<double>();
@@ -60,12 +61,12 @@ fs::path default_config() {
 Options load_config(const fs::path &path, std::vector<Arm> &arms) {
   const auto yaml = YAML::LoadFile(path.string());
   Options options;
-  options.samples = integer(yaml, "sample_count", 2, 1000);
-  options.interval_ms = integer(yaml, "sample_interval_ms", 2, 100);
-  options.feedback_timeout_ms =
-      integer(yaml, "feedback_timeout_ms", 100, 30000);
-  options.reply_timeout_ms = integer(yaml, "reply_timeout_ms", 1, 1000);
-  options.receive_budget_us = integer(yaml, "receive_budget_us", 1, 10000);
+  options.samples = integer(yaml, "sample_count", 2);
+  options.interval_ms = integer(yaml, "sample_interval_ms");
+  options.feedback_timeout_ms = integer(yaml, "feedback_timeout_ms");
+  options.reply_timeout_ms = integer(
+      yaml, "reply_timeout_ms", 1, std::numeric_limits<unsigned>::max() / 1000);
+  options.receive_budget_us = integer(yaml, "receive_budget_us");
   options.max_speed = positive(yaml, "max_joint_speed");
   options.max_drift = positive(yaml, "max_position_drift");
   options.zero_tolerance = positive(yaml, "zero_tolerance");
@@ -77,10 +78,11 @@ Options load_config(const fs::path &path, std::vector<Arm> &arms) {
     if (!std::isfinite(options.zero_reference[joint]))
       throw std::runtime_error("zero_reference must contain six finite angles");
   }
-  if (options.samples * options.interval_ms >= options.feedback_timeout_ms)
+  if (uint64_t{options.samples} * options.interval_ms >=
+      options.feedback_timeout_ms)
     throw std::runtime_error(
         "feedback_timeout_ms must exceed the sampling window");
-  if (options.receive_budget_us >= options.interval_ms * 1000)
+  if (options.receive_budget_us >= uint64_t{options.interval_ms} * 1000)
     throw std::runtime_error(
         "receive_budget_us must be smaller than sample_interval_ms");
   fs::path communication = yaml["communication_config"].as<std::string>();
@@ -88,7 +90,7 @@ Options load_config(const fs::path &path, std::vector<Arm> &arms) {
     communication = path.parent_path() / communication;
   const auto connections = YAML::LoadFile(communication.string());
   const auto selected = yaml["arms"];
-  if (!selected.IsSequence() || selected.size() == 0 || selected.size() > 2)
+  if (!selected.IsSequence() || selected.size() == 0)
     throw std::runtime_error(
         "arms must select [left], [right], or [left, right]");
   std::set<std::string> sides, addresses;
@@ -139,12 +141,11 @@ z1::Feedback sample(Arm &arm, const Options &options, bool verify_zero) {
               : exchange.error);
     z1::Vec velocity = z1::Vec::Zero();
     double position_speed = 0;
-    if (f.fresh && f.q.allFinite() && f.dq.allFinite()) {
+    const bool finite_feedback = f.q.allFinite() && f.dq.allFinite();
+    if (f.fresh && finite_feedback) {
       velocity = arm.transport->filteredVelocity();
       if (previous_valid) {
         const double dt = f.received_at - previous_time;
-        if (!std::isfinite(dt) || dt <= 0)
-          throw std::runtime_error("invalid feedback receive timestamps");
         position_speed = (f.q - previous_position).cwiseAbs().maxCoeff() / dt;
       }
       previous_position = f.q;
@@ -157,7 +158,7 @@ z1::Feedback sample(Arm &arm, const Options &options, bool verify_zero) {
       count = 0;
       reason = "no fresh MCU feedback within receive_budget_us=" +
                std::to_string(options.receive_budget_us);
-    } else if (!f.q.allFinite() || !f.dq.allFinite() || !velocity.allFinite()) {
+    } else if (!finite_feedback || !velocity.allFinite()) {
       count = 0;
       reason = "nonfinite six-joint position or velocity feedback";
     } else if (velocity.cwiseAbs().maxCoeff() > options.max_speed ||

@@ -5,22 +5,15 @@
 #define REBACK_SLEEP_MS 5
 
 ModbusRTUMaster::ModbusRTUMaster(const std::string portNmae, const uint32_t baudRate) {
-  try {
-    com_.setPort(portNmae);
-    com_.setBaudrate(baudRate);
-    com_.setBytesize(serial::eightbits);
-    com_.setParity(serial::parity_none);
-    com_.setStopbits(serial::stopbits_one);
-    com_.setFlowcontrol(serial::flowcontrol_none);
-    serial::Timeout serial_timeout = serial::Timeout::simpleTimeout(50);
-    com_.setTimeout(serial_timeout);
-    com_.open();
-    //com_.setRTS(false);
-    //com_.setDTR(false);
-  } catch (serial::IOException &e) {
-    ROS_DEBUG_STREAM("Unable to open serial port:" << portNmae);
-    return;
-  }
+  com_.setPort(portNmae);
+  com_.setBaudrate(baudRate);
+  com_.setBytesize(serial::eightbits);
+  com_.setParity(serial::parity_none);
+  com_.setStopbits(serial::stopbits_one);
+  com_.setFlowcontrol(serial::flowcontrol_none);
+  serial::Timeout serial_timeout = serial::Timeout::simpleTimeout(50);
+  com_.setTimeout(serial_timeout);
+  com_.open();
 
   ROS_DEBUG_STREAM("open serial port:" << portNmae << " successful!!");
     
@@ -32,11 +25,6 @@ ModbusRTUMaster::~ModbusRTUMaster() {
 }
 
 uint8_t ModbusRTUMaster::SetMultipleRegisters(const uint8_t slave_id, const uint16_t address, const uint16_t length, uint16_t *data) {
-  if (!com_.isOpen()) {
-    ROS_DEBUG("serial not open!!");
-    return 0;
-  }
-
   std::lock_guard<std::mutex> lck(mtx_);
 
   com_.flush();
@@ -122,11 +110,6 @@ uint8_t ModbusRTUMaster::SetMultipleRegisters(const uint8_t slave_id, const uint
 }
 
 uint8_t ModbusRTUMaster::GetMultipleRegisters(const uint8_t slave_id, const uint16_t address, const uint16_t length, uint16_t *data) {
-  if (!com_.isOpen()) {
-    ROS_DEBUG("serial not open!!");
-    return 0;
-  }
-
   std::lock_guard<std::mutex> lck(mtx_);
 
   com_.flush();

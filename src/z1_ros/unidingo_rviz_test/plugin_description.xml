@@ -1,0 +1,8 @@
+<library path="lib/libz1_rviz_plugins">
+  <class name="unidingo_rviz_test/TargetPanel" type="unidingo_rviz_test::TargetPanel" base_class_type="rviz::Panel">
+    <description>Pose targets, Home presets, preview status and explicit SDK commands.</description>
+  </class>
+  <class name="unidingo_rviz_test/SdkMotionPlanning" type="unidingo_rviz_test::SdkMotionPlanning" base_class_type="rviz::Display">
+    <description>Official MoveIt goal editor with SDK PoseGoal and preview adapters.</description>
+  </class>
+</library>

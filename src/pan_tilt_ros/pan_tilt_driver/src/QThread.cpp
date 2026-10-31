@@ -35,24 +35,24 @@ QThread::~QThread()
 
 void QThread::start()
 {
-  td = new std::thread(std::bind(&QThread::run, this));
+  td = std::thread(&QThread::run, this);
   threadStatus = THREAD_STATUS_RUNNING;
 }
 
 void QThread::join()
 {
-  td->join();
+  td.join();
   threadStatus = THREAD_STATUS_EXIT;
 }
 
 void QThread::detach()
 {
-  td->detach();
+  td.detach();
   threadStatus = THREAD_STATUS_EXIT;
 }
 
 std::thread::id QThread::getPid() const
 {
-  return  td->get_id();
+  return td.get_id();
 }
 

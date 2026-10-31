@@ -56,8 +56,6 @@ int main(int argc, char **argv) {
     Vec q;
     q << 0, 0.8, -1.1, 0.3, 0, 0;
     require(m.withinLimits(q), "nominal state outside limits");
-    std::cout << "nominal clearance=" << m.clearance(q).distance
-              << " pair=" << m.clearance(q).pair << '\n';
     Vec solved;
     Pose target = m.fk(q);
     target.translation().z() += 0.003;
@@ -69,42 +67,6 @@ int main(int argc, char **argv) {
     Pose far = target;
     far.translation().x() = 100;
     require(!m.ik(far, q, solved), "unreachable IK accepted");
-    auto obstacle = mc;
-    FixedBox box;
-    box.name = "mount";
-    box.size = Eigen::Vector3d(0.1, 0.1, 0.1);
-    box.placement.translation() = m.fk(q).translation();
-    obstacle.fixed_boxes.push_back(box);
-    Model blocked(obstacle);
-    require(blocked.clearance(q).distance < 0, "fixed structure ignored");
-    // Safe endpoints with an unsafe middle: a fixture intersects the TCP sweep,
-    // not the endpoints.
-    auto sweep = mc;
-    box.name = "sweep_obstacle";
-    box.size = Eigen::Vector3d::Constant(0.015);
-    box.placement.translation() = m.fk(q) * Eigen::Vector3d(0.045, 0, 0);
-    sweep.fixed_boxes.push_back(box);
-    Model sweep_model(sweep);
-    Vec from = q, to = q;
-    from[0] = -1;
-    to[0] = 1;
-    require(sweep_model.clearance(from).distance > 0.03 &&
-                sweep_model.clearance(to).distance > 0.03,
-            "collision test endpoints are unsafe");
-    Config cfg;
-    Controller guarded(sweep, cfg);
-    Feedback sf;
-    sf.q = from;
-    sf.fresh = true;
-    sf.sequence = 1;
-    sf.received_at = 1;
-    guarded.step(sf, 1);
-    guarded.operate(Operation::Enable);
-    sf.sequence++;
-    sf.received_at = 1.004;
-    guarded.step(sf, 1.004);
-    require(guarded.goal(1, to, 0.3),
-            "diagnostic geometry blocked a joint-valid trajectory");
     Fixture a(argv[1]);
     a.enable();
     Vec goal = q;
@@ -357,7 +319,7 @@ int main(int argc, char **argv) {
               "impedance reference rejected");
       compliant.tick(false);
       require(compliant.c.snapshot().mode == Mode::Impedance,
-              "rigid common joint motion caused a false collision stop");
+              "impedance tracking stopped unexpectedly");
     }
     const Vec before_gain = compliant.output.tau;
     require(compliant.c.gains(2 * compliant.config.stiffness,

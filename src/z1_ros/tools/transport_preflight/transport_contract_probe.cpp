@@ -18,8 +18,6 @@ struct Scenario {
   IOPortStatus receive_status = IOPortStatus::ok;
   IOPortStatus send_status = IOPortStatus::ok;
   std::size_t port_constructions = 0;
-  std::size_t send_calls = 0;
-  std::size_t receive_calls = 0;
   std::size_t injected_samples = 0;
   double position = 0.125;
 };
@@ -122,12 +120,10 @@ UdpPort::UdpPort(std::string name, uint, std::size_t timeout_ms)
 }
 
 IOPortStatus UdpPort::send(uint8_t*, std::size_t) {
-  ++scenario.send_calls;
   return scenario.send_status;
 }
 
 std::size_t UdpPort::recvLen(uint8_t* output, std::size_t capacity) {
-  ++scenario.receive_calls;
   if (!scenario.handshake) return 0;
   if (capacity == 2) {
     output[0] = 0x20;
@@ -138,7 +134,6 @@ std::size_t UdpPort::recvLen(uint8_t* output, std::size_t capacity) {
 }
 
 IOPortStatus UdpPort::recv(uint8_t* output, std::size_t capacity) {
-  ++scenario.receive_calls;
   if (scenario.receive_status != IOPortStatus::ok) return scenario.receive_status;
   if (capacity == 9) {
     // The real IOUDP init checks the seven motor connection bytes at offset 2.

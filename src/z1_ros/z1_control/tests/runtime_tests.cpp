@@ -210,6 +210,38 @@ void transportFailureDetails(const ModelConfig &model) {
             "transport failure did not restore passive output");
   }
 }
+
+void shutdownTransportFailure(const ModelConfig &model) {
+  struct StopFailure final : Transport {
+    RecordedTransport delegate;
+    Controller *controller{};
+    bool failed{};
+    Exchange exchange(const Output &out, double now) override {
+      if (!failed && controller->snapshot().mode == Mode::Stopping) {
+        failed = true;
+        throw std::runtime_error("transport failed during shutdown");
+      }
+      return delegate.exchange(out, now);
+    }
+  };
+  auto transport = std::make_unique<StopFailure>();
+  auto *recorded = transport.get();
+  Runtime runtime(model, Config{}, std::move(transport));
+  recorded->controller = &runtime.controller();
+  runtime.start();
+  waitFor([&] { return runtime.controller().snapshot().feedback_valid; },
+          "missing feedback before shutdown fault test");
+  auto target = runtime.controller().snapshot().feedback.q;
+  target[0] += .08;
+  require(runtime.controller().goal(1, target, .3),
+          "goal rejected before shutdown fault test");
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  runtime.stop();
+  require(recorded->failed && runtime.controller().snapshot().mode == Mode::Fault,
+          "shutdown transport exception did not end in Fault");
+  require(!recorded->delegate.samples.back().enabled,
+          "shutdown failure omitted the final passive exchange");
+}
 } // namespace
 int main(int argc, char **argv) {
   try {
@@ -219,6 +251,7 @@ int main(int argc, char **argv) {
     schedulerSettings(model);
     controlledShutdown(model);
     transportFailureDetails(model);
+    shutdownTransportFailure(model);
     std::cout << "runtime timing and shutdown tests passed\n";
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

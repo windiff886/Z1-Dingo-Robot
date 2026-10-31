@@ -95,9 +95,9 @@ class LaunchConfiguration(unittest.TestCase):
             root = ET.parse(path).getroot()
             nodes.extend(root.iter('node'))
             for include in root.iter('include'):
-                prefix = '$(find z1_bringup)/'
-                self.assertTrue(include.get('file').startswith(prefix))
-                collect(BRINGUP / include.get('file')[len(prefix):])
+                package, relative = include.get('file')[len('$(find '):].split(')/', 1)
+                self.assertIn(package, ('z1_bringup', 'unidingo_rviz_test'))
+                collect(BRINGUP.parent / package / relative)
 
         collect(entry)
         self.assertEqual(sum(node.get('pkg') == 'robot_state_publisher' for node in nodes), 1)

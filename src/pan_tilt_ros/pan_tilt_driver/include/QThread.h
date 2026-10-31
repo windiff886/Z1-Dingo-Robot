@@ -27,7 +27,6 @@
 #define QTHREAD_H
 #include <iostream>
 #include <thread>
-#include <functional>
 
 class QThread
 {
@@ -55,7 +54,7 @@ protected:
 
 private:
   THREAD_STATUS threadStatus;
-  std::thread *td;
+  std::thread td;
 };
 
 #endif //QTHREAD_H

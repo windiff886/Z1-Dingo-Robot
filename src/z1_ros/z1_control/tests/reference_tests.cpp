@@ -1,12 +1,12 @@
 #include "z1_control/controller.hpp"
 #include <Eigen/Cholesky>
 #include <Eigen/SVD>
-#include <coal/distance.h>
-#include <coal/shape/geometric_shapes.h>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/geometry.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
+#include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/spatial/explog.hpp>
 #include <random>
@@ -40,19 +40,14 @@ CartesianReference posePoint(double t) {
   return p;
 }
 
-// Independent, unpruned Coal queries validate the optimized query result,
-// including negative signed distances and fixed world geometry.
-struct BruteGeometry {
+// Full-frame FK and Jacobian provide an independent kinematics reference.
+struct FullKinematics {
   pinocchio::Model model;
-  pinocchio::GeometryModel geometry;
   std::unique_ptr<pinocchio::Data> data;
-  std::unique_ptr<pinocchio::GeometryData> geometry_data;
   ModelConfig config;
-  BruteGeometry(const ModelConfig &c) : config(c) {
+  FullKinematics(const ModelConfig &c) : config(c) {
     pinocchio::urdf::buildModel(c.urdf, model);
-    pinocchio::urdf::buildGeom(model, c.urdf, pinocchio::COLLISION, geometry);
     data.reset(new pinocchio::Data(model));
-    geometry_data.reset(new pinocchio::GeometryData(geometry));
   }
   // Match the previous separate FK and Jacobian evaluation, independently of
   // the SDK's combined tool-frame evaluation.
@@ -68,46 +63,27 @@ struct BruteGeometry {
                                 pinocchio::LOCAL_WORLD_ALIGNED, J);
     return pose;
   }
-  double distance(const Vec &q) {
-    pinocchio::updateGeometryPlacements(model, *data, geometry, *geometry_data,
-                                        q);
-    double best = std::numeric_limits<double>::infinity();
-    auto query = [&](const auto *a, const auto &ap, const auto *b,
-                     const auto &bp) {
-      coal::DistanceRequest request;
-      request.enable_signed_distance = true;
-      coal::DistanceResult result;
-      best = std::min(
-          best,
-          coal::distance(a, coal::Transform3s(ap.rotation(), ap.translation()),
-                         b, coal::Transform3s(bp.rotation(), bp.translation()),
-                         request, result));
-    };
-    for (size_t i = 0; i < geometry.geometryObjects.size(); ++i)
-      for (size_t j = i + 1; j < geometry.geometryObjects.size(); ++j) {
-        const auto &a = geometry.geometryObjects[i],
-                   &b = geometry.geometryObjects[j];
-        const auto an = model.frames[a.parentFrame].name,
-                   bn = model.frames[b.parentFrame].name;
-        bool skip = an == bn;
-        for (const auto &pair : config.ignored_pairs)
-          skip |= (pair.first == an && pair.second == bn) ||
-                  (pair.second == an && pair.first == bn);
-        if (!skip)
-          query(a.geometry.get(), geometry_data->oMg[i], b.geometry.get(),
-                geometry_data->oMg[j]);
-      }
-    for (const auto &box : config.fixed_boxes) {
-      coal::Box shape(box.size.x(), box.size.y(), box.size.z());
-      pinocchio::SE3 transform(box.placement.linear(),
-                               box.placement.translation());
-      for (size_t i = 0; i < geometry.geometryObjects.size(); ++i)
-        query(geometry.geometryObjects[i].geometry.get(), geometry_data->oMg[i],
-              &shape, transform);
-    }
-    return best;
-  }
 };
+
+// Restore the gripper coordinate to independently check the six-axis rigid
+// reduction against a seven-coordinate model at q_gripper=dq_gripper=ddq_gripper=0.
+pinocchio::Model articulatedGripper(const ModelConfig &config) {
+  std::ifstream input(config.urdf);
+  std::string xml((std::istreambuf_iterator<char>(input)), {});
+  const std::string fixed = "<joint name=\"gripper_closed_mount\" type=\"fixed\">";
+  const auto at = xml.find(fixed);
+  require(at != std::string::npos, "official closed-gripper fixture missing");
+  xml.replace(at, fixed.size(), "<joint name=\"jointGripper\" type=\"revolute\">");
+  xml.insert(xml.find("</joint>", at),
+             "<axis xyz=\"0 1 0\"/><limit lower=\"-1.5707963267948966\" "
+             "upper=\"0\" effort=\"30\" velocity=\"3.1415\"/>");
+  pinocchio::Model model;
+  pinocchio::urdf::buildModelFromXML(xml, model);
+  model.gravity.linear() = config.gravity;
+  require(model.nq == 7 && model.names[7] == "jointGripper",
+          "articulated gripper coordinates differ from official arm order");
+  return model;
+}
 int main(int argc, char **argv) {
   try {
     require(argc == 2, "model required");
@@ -119,6 +95,13 @@ int main(int argc, char **argv) {
                 (sample.velocity - exact.velocity).norm() < 1e-7 &&
                 (sample.acceleration - exact.acceleration).norm() < 1e-5,
             "quintic interpolation does not preserve derivatives");
+    const auto last_joint = jointPoint(1.1);
+    const auto extrapolated = joints.sample(1.15, 0.1);
+    require((extrapolated.position - last_joint.position -
+             0.05 * last_joint.velocity - 0.5 * 0.05 * 0.05 *
+                                               last_joint.acceleration)
+                    .norm() < 1e-12,
+            "joint reference extrapolation changed");
     require(joints.sample(1.3, 0.1).velocity.isZero(),
             "extrapolation did not end");
     auto replacement = jointPoint(1.08);
@@ -150,20 +133,49 @@ int main(int argc, char **argv) {
         "Cartesian acceleration mismatch");
     require(poseError(pose.pose, posePoint(0.08).pose).norm() < 1e-7,
             "noncommuting rotation interpolation inaccurate");
+    const auto last_pose = posePoint(0.2);
+    const auto extrapolated_pose = poses.sample(10.25, 0.1);
+    require((extrapolated_pose.pose.translation() -
+             last_pose.pose.translation() -
+             0.05 * last_pose.velocity.head<3>() -
+             0.5 * 0.05 * 0.05 * last_pose.acceleration.head<3>())
+                    .norm() < 1e-12 &&
+                validPose(extrapolated_pose.pose),
+            "Cartesian reference extrapolation changed");
 
     auto config = defaultModelConfig(argv[1]);
-    FixedBox box;
-    box.name = "test_world";
-    box.size = Eigen::Vector3d(0.08, 0.1, 0.12);
-    box.placement.translation() << -0.1, 0.1, 0.3;
-    config.fixed_boxes.push_back(box);
     Model optimized(config);
-    BruteGeometry brute(config);
+    auto articulated = articulatedGripper(config);
+    pinocchio::Data articulated_data(articulated);
+    require((optimized.velocityLimit().array() - 3.1415).abs().maxCoeff() < 1e-12,
+            "control model lost official velocity limits");
+    auto excessive = Config{};
+    excessive.velocity.setConstant(4);
+    bool excessive_rejected = false;
+    try { Controller invalid(config, excessive); }
+    catch (const std::invalid_argument &) { excessive_rejected = true; }
+    require(excessive_rejected, "configuration above official velocity limit accepted");
+    auto accelerated = config;
+    accelerated.gravity << 0, 0, -25;
+    Model accelerated_model(accelerated);
+    const Vec middle = (optimized.lower() + optimized.upper()) * 0.5;
+    require((accelerated_model.inverseDynamics(middle, Vec::Zero(),
+                                               Vec::Zero()) -
+             optimized.inverseDynamics(middle, Vec::Zero(), Vec::Zero()) *
+                 (25 / 9.81))
+                    .norm() < 1e-10,
+            "finite base acceleration was rejected or changed dynamics");
+    accelerated.gravity[2] = std::numeric_limits<double>::infinity();
+    bool invalid_gravity_rejected = false;
+    try {
+      Model invalid(accelerated);
+    } catch (const std::runtime_error &) {
+      invalid_gravity_rejected = true;
+    }
+    require(invalid_gravity_rejected, "nonfinite gravity was accepted");
+    FullKinematics full(config);
     std::mt19937 random(8675309);
     std::uniform_real_distribution<double> uniform(0, 1);
-    bool penetration = false;
-    std::string_view retained_pair;
-    std::string retained_name;
     for (int sample = 0; sample < 250; ++sample) {
       Vec q, uncertainty, delta;
       for (int j = 0; j < 6; ++j) {
@@ -172,31 +184,15 @@ int main(int argc, char **argv) {
         uncertainty[j] = 0.01 + 0.02 * uniform(random);
         delta[j] = (2 * uniform(random) - 1) * uncertainty[j];
       }
-      const double expected = brute.distance(q);
-      penetration |= expected < 0;
-      const auto light = optimized.clearanceSample(q);
-      const auto owning = optimized.clearance(q);
-      require(std::abs(light.distance - expected) < 1e-8,
-              "broadphase/cached distance differs from brute force");
-      require(light.distance == owning.distance && light.pair == owning.pair,
-              "lightweight clearance changed public query semantics");
-      const auto light_bound = optimized.clearanceSample(q, uncertainty);
-      const auto owning_bound = optimized.clearance(q, uncertainty);
-      require(light_bound.distance == owning_bound.distance &&
-                  light_bound.pair == owning_bound.pair,
-              "lightweight displacement bound differs from owning result");
-      const double lower = light_bound.distance;
-      require(lower <= brute.distance(q + delta) + 1e-8,
-              "pair-specific displacement bound is not conservative");
-      if (sample == 0) {
-        retained_pair = light.pair;
-        retained_name = light.pair;
-      }
-      require(retained_pair == retained_name,
-              "clearance pair view invalidated by later queries");
-
       Jacobian expected_jacobian;
-      const Pose expected_pose = brute.kinematics(q, expected_jacobian);
+      Eigen::Matrix<double, 7, 1> q7, v7, a7;
+      q7 << q, 0;
+      v7 << Vec::Constant(.02), 0;
+      a7 << Vec::Constant(-.03), 0;
+      const Vec torque = pinocchio::rnea(articulated, articulated_data, q7, v7, a7).head<6>();
+      require((optimized.inverseDynamics(q, v7.head<6>(), a7.head<6>()) - torque).norm() < 1e-10,
+              "six-axis gripper reduction differs from articulated closed gripper");
+      const Pose expected_pose = full.kinematics(q, expected_jacobian);
       require((optimized.fk(q).matrix() - expected_pose.matrix()).norm() <
                       1e-12 &&
                   (optimized.jacobian(q) - expected_jacobian).norm() < 1e-12,
@@ -237,33 +233,9 @@ int main(int argc, char **argv) {
                 "combined iterative IK violated convergence tolerance");
       }
     }
-    require(penetration, "signed penetration cases not covered");
-    // Exercise the same persistent pair solvers through a continuous path,
-    // then revisit its first configuration. Request-local initialization must
-    // keep the signed result independent of the solver's previous queries.
-    const Vec center = (optimized.lower() + optimized.upper()) * 0.5;
-    const Vec amplitude = (optimized.upper() - optimized.lower()) * 0.35;
-    Vec first_q;
-    for (int sample = 0; sample < 300; ++sample) {
-      Vec q;
-      for (int j = 0; j < 6; ++j)
-        q[j] = center[j] + amplitude[j] * std::sin(sample * 0.03 + j * 0.7);
-      if (sample == 0)
-        first_q = q;
-      const double expected = brute.distance(q);
-      const auto result = optimized.clearanceSample(q);
-      require(std::abs(result.distance - expected) < 1e-8,
-              "persistent pair solver differs along continuous path");
-      require(optimized.clearanceSample(q).distance == result.distance,
-              "same-configuration geometry cache changed distance");
-    }
-    require(std::abs(optimized.clearanceSample(first_q).distance -
-                     brute.distance(first_q)) < 1e-8,
-            "persistent pair solver retained query-dependent distance");
     std::cout
         << "PASS: timed interpolation, SO(3) derivatives, replacement, "
-           "broadphase/owning/view equivalence, displacement bounds, "
-           "persistent pair solvers, and tool kinematics/IK equivalence\n";
+           "gravity validation, official gripper reduction, and tool kinematics/IK equivalence\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << "FAIL: " << e.what() << '\n';

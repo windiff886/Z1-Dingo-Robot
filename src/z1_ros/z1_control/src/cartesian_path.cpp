@@ -120,7 +120,7 @@ Pose at(const std::vector<Piece> &path, double time) {
   const auto found = std::upper_bound(
       path.begin(), path.end(), time,
       [](double t, const Piece &piece) { return t < piece.start; });
-  return (found == path.begin() ? path.front() : *std::prev(found)).at(time);
+  return std::prev(found)->at(time);
 }
 
 // Model::ik intentionally has a looser goal tolerance. Offline contour fitting

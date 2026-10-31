@@ -20,7 +20,8 @@ bool feedback_valid
 bool new_feedback
 float64 feedback_age
 bool has_gripper
-# Model distance diagnostics only; these fields do not gate motion.
+# Legacy fields: collision_distance is NaN and collision_pair is empty.
+# Geometry queries belong to the planning layer.
 float64 collision_distance
 string collision_pair
 float64 compute_time

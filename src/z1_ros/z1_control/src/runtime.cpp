@@ -102,15 +102,12 @@ void Runtime::start() {
                        .count()
                  : 0);
       Exchange e;
-      bool exchanged = true;
       const auto exchange_began = Clock::now();
       try {
         e = transport_->exchange(out, std::chrono::duration<double>(
                                           exchange_began.time_since_epoch())
                                           .count());
       } catch (const std::exception &error) {
-        exchanged = false;
-        e.feedback.fresh = false;
         e.feedback.transport_fault = true;
         e.error = std::string("transport exception: ") + error.what();
       }
@@ -126,10 +123,7 @@ void Runtime::start() {
           e.error = "MCU packet send failed";
       }
       out = controller_.step(e.feedback, monotonicTime(), e.error);
-      if (!e.sent)
-        out = Output{};
       timing_.cycles.fetch_add(1, std::memory_order_relaxed);
-      return exchanged;
     };
     auto waitNext = [&] {
       next += period;
@@ -155,10 +149,7 @@ void Runtime::start() {
       controller_.operate(Operation::Stop);
       auto deadline = Clock::now() + std::chrono::seconds(2);
       while (Clock::now() < deadline) {
-        if (!cycle()) {
-          out = Output{};
-          break;
-        }
+        cycle();
         auto stopped = controller_.snapshot().mode;
         if (stopped == Mode::AwaitResume || stopped == Mode::Disabled ||
             stopped == Mode::Fault)

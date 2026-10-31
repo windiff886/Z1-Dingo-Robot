@@ -1,103 +1,82 @@
-# RViz 双臂启动与末端目标测试
+# RViz 双臂 TCP 预览与测试
 
-本包用于启动并测试左右 Z1 机械臂，在 RViz 中提供左右 TCP 的六自由度交互手柄。用户拖动手柄设置目标位姿，由 Z1 SDK 控制对应机械臂运动，模型根据双臂关节反馈更新。底盘、云台和 D455 作为静态安装参考显示，测试期间这些组件的驱动不运行。
+在 **TCP targets** 面板选择 **LEFT / RIGHT**，拖动 MoveIt 手柄编辑橙色目标臂。淡紫色机械臂播放 SDK 参考轨迹；点击 **SEND POSE** 才发送目标位姿。选择 **Home pose** 也只更新目标和预览。
 
-## 唯一启动入口
-
-本包的唯一启动文件是 [launch/rviz_tcp_test.launch](launch/rviz_tcp_test.launch)。在已构建并加载环境的 ROS 1 工作区中执行：
+## 在 ROS 1 Noetic 部署机启动
 
 ```bash
+sudo apt install ros-noetic-moveit-ros-visualization ros-noetic-moveit-ros-move-group \
+  ros-noetic-moveit-planners-ompl ros-noetic-trac-ik-kinematics-plugin
+catkin_make -DCMAKE_BUILD_TYPE=Release
 source devel/setup.bash
 roslaunch unidingo_rviz_test rviz_tcp_test.launch
 ```
 
-启动命令无需附加参数。此命令同时启动左右机械臂控制器、连接各自的真实 MCU，并启动整机显示和目标发送节点。运行选项从 YAML 读取，由本入口统一发布整机模型和 TF。即使独立机械臂配置中的 `publish_description` 设为 `true`，本入口也不会启动单臂模型或 TF 发布器。
+入口连接真实双臂 MCU，包含两个 SDK 控制器，与 `z1_bringup arm.launch` 二选一。地址和端口来自 [communication.yaml](../z1_bringup/config/communication.yaml)。两臂从 Disabled 启动；有效且静止时，SEND 可以直接开始有限运动。默认速度比例为 `0.05`。
 
-双臂通信参数来自 [communication.yaml](../z1_bringup/config/communication.yaml)，需按实际设备配置 IP 和本地端口。连接成功后机械臂处于 Disabled；首条有效目标从实测位置直接开始执行，无需先通过菜单使能。
+## 编辑、预览、明确发送
 
-当前控制周期为 250 Hz，UDP 接收预算为 3 ms，实测依据和适用范围见 [通信节拍说明](../COMMUNICATION_TIMING.md)。
+1. 等待反馈和整机模型，选择 LEFT 或 RIGHT。当前臂的 MoveIt 手柄用于编辑目标，未编辑的目标状态跟随实测关节。
+2. 拖动平移箭头或旋转圆环。MoveIt 使用 TRAC-IK 更新橙色目标臂；SDK 在后台计算淡紫色执行参考。不可达或反馈过期时，SEND 不可用。
+3. 等 SDK 预览就绪后点击 SEND POSE。发送后按钮立即禁用，直到该命令返回结果；连续点击不会覆盖正在跟踪的命令。
+4. 成功后按编辑器版本恢复实测状态；运动中编辑了新目标，则保留新目标。命令被拒绝时保留目标，并显示原因。
 
-几何距离仅作诊断；已删除固定净空对使能、运动、恢复和制动的强制拦截，以及对应开关和阈值。正常折叠贴合可以直接保持和运动。关节位置、速度/加速度/jerk、输出力矩及变化率、反馈有效性、电机故障和受控制动约束保留。详见 [控制约束审核](../SAFETY_AUDIT.md)。
+**橙色目标臂是 MoveIt 的 IK 解，淡紫色动画是 SDK 的 IK＋Ruckig 参考。** 同一个 TCP 位姿可以对应不同的关节解；实际发送的是位姿，SDK 从接收时的起点重新求解和验证。界面秒数为 SDK 参考时长，动画默认按官方配置的 `3x` 播放；改为 `1x` 可按参考时序播放。
 
-## 这个启动文件做了什么
+面板保留 **Measured TCP、STOP、Hold after stop、Enable、Disable、Ack fault**。Measured TCP 清除本臂编辑并恢复实测目标；STOP 后等 AwaitResume，再 Hold 回到 Holding。停止操作不等待预览服务。数值使用本臂基座坐标系，四元数顺序为 xyzw。
 
-### 1. 加载整机模型
+实心整机来自有效关节反馈，底盘、云台和显示夹爪保持零位。选臂时只播放当前臂的参考，另一臂使用生成该预览时的实测关节，不参与当前轨迹。
 
-通过 Xacro 展开 [uni_dingo_dual_arm.urdf.xacro](../../unidingo_description/urdf/uni_dingo_dual_arm.urdf.xacro)，将结果写入 `/robot_description`。模型包含底盘、左右机械臂及夹爪、云台和 D455；启动文件固定启用 `UnitreeGripper=true` 和 `PanTilt=true`。
+## Home 使用官方命名状态
 
-整机显示以 `base_link` 为固定参考系。底盘、云台和相机仅显示模型，本测试只启动双臂控制器。
+[dual_arm.srdf](config/dual_arm.srdf) 将[宇树官方 SRDF](https://github.com/unitreerobotics/z1_ros/blob/d3bafd38fb48e805096da7abb0c19a15b636975d/z1_moveit_config/config/z1_description.srdf)的 Home 按左右臂前缀映射：
 
-### 2. 根据反馈发布整机 TF
-
-启动 `/whole_robot_state_publisher`，读取 `/robot_description` 和 `/rviz_tcp_test/joint_states`，发布各连杆的 TF。
-
-交互节点仅订阅左右臂的反馈，将有效、新鲜的六轴关节位置转发到 `/rviz_tcp_test/joint_states`，并保留源消息时间戳。
-
-轮子、云台和可视化夹爪固定使用零位显示，以补全静态模型的 TF。夹爪电机反馈与模型夹爪关节之间没有直接换算。机械臂手柄需要有效的状态、TCP 反馈及 TF 才能初始化。
-
-### 3. 启动 TCP 目标交互节点
-
-启动 `/rviz_tcp_test`，运行 [interactive_tcp_test.py](scripts/interactive_tcp_test.py)。该节点订阅各臂的 `joint_states`、`tcp_pose`、`status` 和 `result`，在当前实测 TCP 处创建目标手柄，并显示控制状态及命令结果。
-
-左右手柄均在 `base_link` 中编辑。发送时，节点通过 TF 将目标转换到对应机械臂基座，并发布 `z1_msgs/PoseGoal`：
-
-| 内容 | 左臂 | 右臂 |
-| --- | --- | --- |
-| 显示模型中的 TCP | `left_tool` | `right_tool` |
-| 控制器接收的目标参考系 | `left_link00` | `right_link00` |
-| 目标 Topic | `/left_arm/pose_goal` | `/right_arm/pose_goal` |
-| 控制操作 Topic | `/left_arm/control` | `/right_arm/control` |
-
-默认 TCP 相对各臂 `link06` 沿 X 正方向平移 0.051 m，姿态相同。目标沿用 SDK 的有限位姿运动接口：先求终点逆解，再执行关节轨迹；TCP 中间路径由该关节轨迹决定。
-
-拖动编辑目标，松开鼠标提交一次目标；右键菜单 `Send target once` 可再次提交。发送节点只负责目标格式和 TF 转换，不重复拦截控制器状态或等待旧结果回执。控制器统一判断反馈、模式、IK、关节轨迹和力矩约束：Disabled 下有效且静止时直接执行首条目标，运动中提交会拒绝，Fault 和 AwaitResume 仍需先处理对应状态。具体接口见 [INTERFACES.md](../INTERFACES.md)。
-
-### 4. 打开 RViz
-
-启动 RViz，加载 [rviz/tcp_test.rviz](rviz/tcp_test.rviz)，显示网格、随反馈更新的整机模型、TCP 目标手柄和控制状态文字。
-
-手柄表示期望目标，机器人模型表示反馈状态。完整整机模型用于显示，SDK 的几何距离诊断按单臂模型及配置的固定结构计算，显示模型本身不会增加双臂互碰或整机绕障能力。
-
-### 5. 启动双臂控制器
-
-启动文件复用 SDK 的内部 [controllers.launch](../z1_bringup/launch/controllers.launch)，启动 `/left_arm/controller` 和 `/right_arm/controller`，读取 SDK 的通信和控制 YAML。该内部文件只启动控制器，整机入口始终独占模型和 TF 发布职责。
-
-两臂分别加载 SDK 控制配置、连接各自 MCU，并发布关节、TCP、控制状态与运动结果。左右臂的使能、目标和停止分别管理。
-
-## 界面操作
-
-控制器启动后保持 Disabled，直到收到明确目标或 ENABLE；打开界面不会自行建立保持力矩。首次有限目标要求反馈有效且各轴速度小于 `velocity_tolerance`，不要求任何几何间距。
-
-显示的 TCP、逆解和几何距离都基于当前反馈角，绝对末端精度需要独立验证。TCP 目标使用关节空间轨迹，手柄的小幅位移不保证每个关节都只移动小角度。
-
-零位附近的编码器小幅越界由控制器统一按 `joint_limit_tolerance` 处理（默认 1 mrad），目标本身仍必须在模型限位内。静止判定同时参考新位置反馈，原始速度有尖峰时可用默认 100 ms 位置窗口确认静止，无需提高运动速度上限。参数与判定方式见 [接口契约](../INTERFACES.md)。
-
-发送日志包含基座坐标系下的 XYZ 和完整 `quat_xyzw`，便于重现具体目标。拖动后的手柄状态同步发布到 `targets/update_full`，新连接的 RViz 或诊断订阅者可读到当前手柄位姿；它表示编辑目标，实际提交目标以发送日志或 `pose_goal` 消息为准。
-
-1. 等待对应臂的 TCP 手柄出现；初始化需要有效反馈及 TF。状态文字会提示 `FEEDBACK STALE / INVALID`。
-2. 拖动平移箭头或旋转圆环，松开鼠标提交目标，默认速度比例为 `0.05`。无需先 ENABLE。`ACCEPTED` 表示计划被接受，`SUCCEEDED` 表示实测到达并稳定。
-3. **一键回 Home**：在底盘正上方居中放置了绿色的 `HOME BOTH ARMS` 3D 交互按钮，鼠标左键单击即可一键命令两臂平稳回到官方标准原点位姿（`[0, 0, 0, -0.07435, 0, 0]` rad）；亦可在左/右机械臂末端手柄的小球上点击鼠标右键，在弹出菜单中选择 `>>> HOME BOTH ARMS <<<` 或 `>>> HOME THIS ARM <<<`。
-4. 需要只保持时，可选择 `ENABLE (Disabled -> Holding)`；需要停止时选择 `STOP`。
-5. 进入 AwaitResume 后，选择 `HOLD after stop` 回到 Holding，再通过 `Reset target to measured TCP` 重置手柄。
-6. Fault 原因处理后，选择 `Acknowledge FAULT`；进入 Disabled 后可直接提交新目标。`DISABLE (passive output)` 用于失能。
-
-## YAML 配置
-
-运行参数统一从 YAML 读取。修改配置后，重新运行同一条无参数启动命令即可。
-
-| 文件 | 内容 |
-| --- | --- |
-| [config/rviz_tcp_test.yaml](config/rviz_tcp_test.yaml) | 速度比例和显示反馈时效 |
-| [z1_bringup/config/communication.yaml](../z1_bringup/config/communication.yaml) | 两臂 MCU IP、本地 UDP 端口和接收预算；`publish_description` 仅用于独立启动机械臂，默认 `false` |
-| [z1_bringup/config/control.yaml](../z1_bringup/config/control.yaml) | SDK 控制周期、运动限制、增益和几何诊断配置 |
-
-测试配置加载到 `/rviz_tcp_test` 的私有参数空间：
-
-```yaml
-speed_scale: 0.05
-telemetry_timeout: 0.3
+```text
+joint1..joint6 = [0, 0, 0, -0.07435, 0, 0] rad
 ```
 
-`speed_scale` 为有限位姿目标的速度比例，范围 `(0,1]`；`telemetry_timeout` 单位为秒，用于手柄初始化、实测位置重置及显示状态的时效判定；命令接受由控制器使用自身反馈判断。启动后修改这些值，需要重启测试节点才生效。
+Home pose 调用 MoveIt 的命名状态接口，HOME TARGETS 同时选择两臂 Home。随后分别切换页签并确认发送，不会直接执行关节 Home 命令。
 
-本包的 ROS 依赖见 [package.xml](package.xml)。
+默认 SDK TCP 为 `tool`，相对官方规划链末端 `link06` 沿 X 平移 `0.051 m`。默认 Home TCP 约为：
+
+```text
+position [m]        = [0.037730, 0, 0.173143]
+quaternion [x,y,z,w] = [0, -0.037166, 0, 0.999309]
+```
+
+适配器从 MoveIt 目标状态计算各臂基座下的 SDK TCP 位姿，使用完整精度。更改控制器 TCP 时，整机显示模型也要包含对应的带前缀 link；更改交互链末端时同步修改 SRDF。机械零点写入仍使用[标定工具](../CALIBRATION.md)。
+
+## 官方组件与 SDK 的边界
+
+官方基准为宇树 [z1_ros Noetic，d3bafd38](https://github.com/unitreerobotics/z1_ros/tree/d3bafd38fb48e805096da7abb0c19a15b636975d) 的 `real_arm.launch → view_robot.launch → robot.rviz`，交互接口对照 [MoveIt 1.1.16](https://github.com/moveit/moveit/tree/1.1.16)。
+
+[SdkMotionPlanning](src/sdk_motion_planning.cpp) 继承官方 `MotionPlanningDisplay`，沿用其 RobotInteraction、目标状态、TRAC-IK、虚影、场景坐标系和轨迹播放。适配层只处理左右臂选择、官方 Home 命名状态、SDK TCP 消息和预览复位。原生 MoveIt 规划执行面板隐藏，操作由 TCP targets 面板提供。
+
+[preview_move_group.launch](launch/preview_move_group.launch) 提供官方场景监视与运动学上下文，设置 `allow_trajectory_execution=false`，不启动 `z1_hw` 或 ros_control 控制器。MoveIt 依赖全部位于本测试工具内，控制 SDK 与 `z1_msgs` 保持独立。
+
+[pose_preview.cpp](src/pose_preview.cpp) 从两个实际控制器读取模型和运动限制，共用 SDK 的 [goal_planner](../z1_control/src/goal_planner.cpp)。它只计算参考，不建立 MCU 连接。显示器播放该参考，而不是 OMPL 规划路径。真正执行仍只发送原有 `/left_arm/pose_goal`、`/right_arm/pose_goal`。
+
+控制 URDF 的速度上限恢复为官方的 `3.1415 rad/s`。用户确认安装原装夹爪后，模型恢复其定子和动子的质量、质心、惯性张量，合计 `0.80224957 kg`。六轴动力学将夹爪固定在闭合零位；夹爪开合不会在线更新该惯性。TCP 保持原定义。
+
+## 排查入口与部署验收
+
+以下名称相对 `/rviz_tcp_test/`，`<side>` 为 left 或 right：
+
+| 入口 | 用途 |
+| --- | --- |
+| `<side>/editor_target` | 官方目标状态导出的本臂 TCP、编辑状态与 IK 有效性 |
+| `editor_action` | 选臂、Home、实测目标和官方轨迹复位 |
+| `<side>_preview/preview` | SDK 只读参考服务，起点顺序为 joint1..joint6 |
+| `preview_trajectory` | 原生 MoveIt 轨迹播放器接收的 SDK 参考 |
+| `ui_action` / `ui_status` | 面板操作 / 状态和目标数值 |
+| `joint_states` | 转发有效原始关节反馈，保留源时间戳 |
+
+参数见 [rviz_tcp_test.yaml](config/rviz_tcp_test.yaml)。反馈时效默认 `0.3 s`，关节消息按自身时间戳判断；起点变化超过控制器 `position_tolerance` 时重新计算预览。
+
+在部署机完成 catkin 构建后，依次检查：
+
+1. MoveIt SDK targets 显示与 TCP targets 面板加载；左右页签切换对应手柄。
+2. 拖动和 Home 只更新目标与预览，两个 `pose_goal` 话题均无新命令。
+3. 参考从实际安装位置开始；切换页签、Measured TCP 能清除旧动画。
+4. 默认低速发送一次，核对 `pose_goal`、`result`、实测 TCP；重复点击不重复提交，成功后恢复实测目标。
+5. 检查新编辑目标保留，以及 STOP → AwaitResume → Hold。模型惯性已改变，先以夹爪闭合状态确认重力补偿与保持表现。

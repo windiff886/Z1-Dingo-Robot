@@ -1,10 +1,11 @@
 #pragma once
 #include "cartesian_path.hpp"
-#include "model.hpp"
+#include "goal_planner.hpp"
 #include "reference.hpp"
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <string_view>
 #include <ruckig/ruckig.hpp>
 namespace z1 {
 class Controller {
@@ -53,7 +54,6 @@ private:
   void recordPosition(const Feedback &);
   Vec boundedFeedback() const;
   Vec finiteStart() const;
-  bool jointPathWithinLimits(const Trajectory &, Model &, std::string *failure);
   bool beginStop(const std::string &, double);
   void fault(const std::string &);
   void event(uint64_t, Outcome, const std::string &);

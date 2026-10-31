@@ -23,20 +23,9 @@
 *********************************************************************************/
 #include "PanTiltDriver.h"
 
-static inline void delay(const uint32_t ms)
-{
-#if defined(_WIN32)
-  Sleep(ms);
-#else
-  usleep(ms * 1000);
-#endif
-}
-
 IQR::PanTiltDriver::PanTiltDriver(const uint8_t id, const std::string &portName)
-    : id_(id), readFlage_(true)
+    : id_(id), readFlage_(true), master_(new ModbusRTUMaster(portName, 115200))
 {
-  st_.id = 0;
-  master_ = new ModbusRTUMaster(portName, 115200);
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
   setPose(0.0, 0.0, 10);
   start();
@@ -45,11 +34,7 @@ IQR::PanTiltDriver::PanTiltDriver(const uint8_t id, const std::string &portName)
 IQR::PanTiltDriver::~PanTiltDriver()
 {
   stop();
-  if (master_)
-  {
-    delete master_;
-    master_ = NULL;
-  }
+  join();
 }
 
 void IQR::PanTiltDriver::getPose(float &yaw, float &pitch)
@@ -111,6 +96,5 @@ void IQR::PanTiltDriver::run()
 
 inline void IQR::PanTiltDriver::stop()
 {
-  std::lock_guard<std::mutex> lck(mtx_);
   readFlage_ = false;
 }

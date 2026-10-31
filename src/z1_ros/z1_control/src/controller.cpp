@@ -35,13 +35,6 @@ bool streaming(Mode m) {
 ModelConfig defaultModelConfig(const std::string &path) {
   ModelConfig c;
   c.urdf = path;
-  // Adjacent mounting envelopes overlap by design; these are explicit model
-  // rules.
-  c.ignored_pairs = {{"link00", "link01"}, {"link01", "link02"},
-                     {"link02", "link03"}, {"link03", "link04"},
-                     {"link04", "link05"}, {"link05", "link06"},
-                     {"link06", "tool"},   {"link00", "link02"},
-                     {"link04", "link06"}, {"link05", "tool"}};
   return c;
 }
 Controller::Controller(ModelConfig m, Config c)
@@ -85,87 +78,12 @@ Controller::Controller(ModelConfig m, Config c)
 }
 Controller::Input Controller::input(const Vec &q, const Vec &v,
                                     const Vec &a) const {
-  Input in;
-  in.current_position = array(q);
-  in.current_velocity = array(v);
-  in.current_acceleration = array(a);
-  in.max_velocity = array(config_.velocity);
-  in.max_acceleration = array(config_.acceleration);
-  in.max_jerk = array(config_.jerk);
-  return in;
+  return jointMotionInput(config_, q, v, a);
 }
 void Controller::event(uint64_t id, Outcome out, const std::string &why) {
   if (events_.size() == 128)
     events_.pop_front();
   events_.push_back({id, out, why});
-}
-bool Controller::jointPathWithinLimits(const Trajectory &t, Model &model,
-                                       std::string *failure) {
-  auto fail = [failure](const std::string &reason) {
-    if (failure)
-      *failure = reason;
-    return false;
-  };
-  double end = t.get_duration();
-  if (!std::isfinite(end) || end < 0)
-    return fail("invalid trajectory duration");
-  // On Ruckig 0.9.2 zero-duration profiles contain unspecified intermediate
-  // positions. Only evaluate initialized, positive-duration polynomial
-  // segments.
-  std::array<double, 6> endpoint, endpoint_v, endpoint_a;
-  t.at_time(0, endpoint, endpoint_v, endpoint_a);
-  if (!model.withinLimits(vector(endpoint)))
-    return fail("trajectory start outside joint limits");
-  t.at_time(end, endpoint, endpoint_v, endpoint_a);
-  if (!model.withinLimits(vector(endpoint)))
-    return fail("trajectory end outside joint limits");
-  if (end > 0)
-    for (const auto &section : t.get_profiles())
-      for (int axis = 0; axis < 6; ++axis) {
-        const auto &p = section[axis];
-        auto segment = [&](double h, double pos, double vel, double accel,
-                           double jerk) {
-          if (h <= 0)
-            return true;
-          if (!std::isfinite(h) || !std::isfinite(pos) || !std::isfinite(vel) ||
-              !std::isfinite(accel) || !std::isfinite(jerk))
-            return false;
-          auto point = [&](double x) {
-            double q =
-                pos + vel * x + 0.5 * accel * x * x + jerk * x * x * x / 6;
-            return std::isfinite(q) && q >= model.lower()[axis] - 1e-10 &&
-                   q <= model.upper()[axis] + 1e-10;
-          };
-          if (!point(0) || !point(h))
-            return false;
-          if (std::abs(jerk) < 1e-14) {
-            if (std::abs(accel) > 1e-14) {
-              double root = -vel / accel;
-              if (root > 0 && root < h && !point(root))
-                return false;
-            }
-          } else {
-            double discriminant = accel * accel - 2 * jerk * vel;
-            if (discriminant >= 0) {
-              for (double root : {(-accel + std::sqrt(discriminant)) / jerk,
-                                  (-accel - std::sqrt(discriminant)) / jerk})
-                if (root > 0 && root < h && !point(root))
-                  return false;
-            }
-          }
-          return true;
-        };
-        if (p.brake.duration > 0)
-          for (int i = 0; i < 2; ++i)
-            if (p.brake.t[i] > 0 &&
-                !segment(p.brake.t[i], p.brake.p[i], p.brake.v[i], p.brake.a[i],
-                         p.brake.j[i]))
-              return fail("braking polynomial outside joint limits");
-        for (int i = 0; i < 7; ++i)
-          if (p.t[i] > 0 && !segment(p.t[i], p.p[i], p.v[i], p.a[i], p.j[i]))
-            return fail("trajectory polynomial outside joint limits");
-      }
-  return true;
 }
 bool Controller::readyForFiniteMotion() const {
   return state_.feedback_valid &&
@@ -187,9 +105,6 @@ void Controller::recordPosition(const Feedback &feedback) {
   const double cutoff = feedback.received_at - config_.stationary_window;
   while (positions_.size() > 2 && positions_[1].time <= cutoff)
     positions_.pop_front();
-  // Bound storage even for a misconfigured producer with tiny sample periods.
-  if (positions_.size() > 1024)
-    positions_.pop_front();
 }
 Vec Controller::positionRange() const {
   Vec lower = positions_.front().position, upper = lower;
@@ -202,28 +117,20 @@ Vec Controller::positionRange() const {
 bool Controller::stationary(double tolerance) const {
   const bool quiet_velocity =
       state_.feedback.dq.cwiseAbs().maxCoeff() < tolerance;
-  if (positions_.size() >= 2) {
-    const auto &last = positions_.back();
-    const auto &previous = positions_[positions_.size() - 2];
-    // Do not let an older quiet window conceal a newly moving arm.
-    if ((last.position - previous.position).cwiseAbs().maxCoeff() >=
-        tolerance * (last.time - previous.time))
-      return false;
-    // Clean velocity and a matching recent position change need no extra
-    // waiting window after an ordinary deceleration.
-    if (quiet_velocity)
-      return true;
-    const double elapsed = positions_.back().time - positions_.front().time;
-    // Range (rather than endpoint displacement) also detects an arm moving
-    // away and returning within the window.
-    if (positionRange().maxCoeff() >= tolerance * elapsed)
-      return false;
-    if (elapsed >= config_.stationary_window - 1e-9)
-      return true;
-  }
-  // Before enough fresh positions exist, keep the original measured-velocity
-  // check. A quiet encoder can start immediately; noisy feedback needs history.
-  return quiet_velocity && positions_.size() < 2;
+  if (positions_.size() < 2)
+    return quiet_velocity;
+  const auto &last = positions_.back();
+  const auto &previous = positions_[positions_.size() - 2];
+  // Do not let an older quiet window conceal a newly moving arm.
+  if ((last.position - previous.position).cwiseAbs().maxCoeff() >=
+      tolerance * (last.time - previous.time))
+    return false;
+  if (quiet_velocity)
+    return true;
+  const double elapsed = last.time - positions_.front().time;
+  // Range also detects an arm moving away and returning within the window.
+  return elapsed >= config_.stationary_window - 1e-9 &&
+         positionRange().maxCoeff() < tolerance * elapsed;
 }
 Vec Controller::boundedFeedback() const {
   return state_.feedback.q.cwiseMax(model_.lower()).cwiseMin(model_.upper());
@@ -252,35 +159,15 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
     generation = generation_;
   }
   std::lock_guard<std::mutex> planner_lock(planning_mutex_);
-  Vec target;
   bool okay = true;
-  std::string reason = "accepted";
+  std::string reason;
   Trajectory candidate;
-  if (pose)
-    okay = planning_model_.ik(*pose, seed, target,
-                             config_.joint_limit_tolerance, &reason);
-  else
-    target = *q;
-  if (okay && !planning_model_.withinLimits(target)) {
+  try {
+    candidate = pose ? planPoseGoal(planning_model_, config_, seed, *pose, speed)
+                     : planJointGoal(planning_model_, config_, seed, *q, speed);
+  } catch (const std::exception &error) {
     okay = false;
-    reason = "joint target outside limits";
-  }
-  if (okay) {
-    auto in = input(seed, Vec::Zero(), Vec::Zero());
-    in.target_position = array(target);
-    for (auto &v : in.max_velocity)
-      v *= speed;
-    try {
-      ruckig::Ruckig<6> planner(config_.period);
-      okay = planner.calculate(in, candidate) == ruckig::Result::Working;
-      if (okay)
-        okay = jointPathWithinLimits(candidate, planning_model_, &reason);
-      else
-        reason = "finite trajectory generator error";
-    } catch (const std::exception &e) {
-      okay = false;
-      reason = e.what();
-    }
+    reason = error.what();
   }
   std::lock_guard<std::mutex> lock(mutex_);
   if (!okay) {
@@ -288,9 +175,8 @@ bool Controller::prepare(uint64_t id, const Vec *q, const Pose *pose,
     return false;
   }
   if (generation != generation_ || !readyForFiniteMotion() ||
-      id <= last_goal_id_ ||
-      (finiteStart() - seed).cwiseAbs().maxCoeff() >
-          (state_.mode == Mode::Disabled ? config_.position_tolerance : 1e-6)) {
+      (state_.mode == Mode::Disabled &&
+       (finiteStart() - seed).cwiseAbs().maxCoeff() > config_.position_tolerance)) {
     event(id, Outcome::Rejected, "state changed during validation");
     return false;
   }
@@ -349,8 +235,6 @@ bool Controller::preparePath(
   bool okay = false;
   try {
     candidate = planner(planning_model_, seed, limits);
-    if (candidate.empty())
-      throw std::invalid_argument("empty trajectory");
     const auto first = candidate.sample(0);
     const auto last = candidate.sample(candidate.duration());
     if ((first.position - seed).cwiseAbs().maxCoeff() > 1e-6 ||
@@ -372,9 +256,8 @@ bool Controller::preparePath(
     return false;
   }
   if (generation != generation_ || !readyForFiniteMotion() ||
-      id <= last_goal_id_ ||
-      (finiteStart() - seed).cwiseAbs().maxCoeff() >
-          (state_.mode == Mode::Disabled ? config_.position_tolerance : 1e-6)) {
+      (state_.mode == Mode::Disabled &&
+       (finiteStart() - seed).cwiseAbs().maxCoeff() > config_.position_tolerance)) {
     event(id, Outcome::Rejected, "state changed during trajectory preparation");
     return false;
   }
@@ -600,7 +483,6 @@ bool Controller::beginStop(const std::string &why, double now) {
     else
       velocity_ = state_.feedback.dq;
     acceleration_.setZero();
-    impedance_reference_ = model_.fk(state_.feedback.q);
   }
   auto in = input(reference_, velocity_, acceleration_);
   in.control_interface = ruckig::ControlInterface::Velocity;
@@ -689,10 +571,8 @@ Output Controller::step(const Feedback &feedback, double now,
     }
     auto &f = state_.feedback;
     bool valid =
-        f.sequence > 0 && std::isfinite(f.received_at) &&
-        f.received_at <= now &&
-        now - f.received_at <= config_.feedback_timeout && f.q.allFinite() &&
-        f.dq.allFinite() && f.tau.allFinite() &&
+        f.sequence > 0 && f.received_at <= now &&
+        now - f.received_at <= config_.feedback_timeout && f.tau.allFinite() &&
         model_.withinLimits(f.q, -config_.joint_limit_tolerance) &&
         (f.dq.cwiseAbs().array() <= 1.25 * config_.velocity.array()).all() &&
         !f.motor_fault && !feedback.transport_fault &&
@@ -714,29 +594,14 @@ Output Controller::step(const Feedback &feedback, double now,
       recordPosition(f);
     }
     state_.tcp = model_.fk(f.q);
-    auto clearance = model_.clearanceSample(f.q);
-    state_.collision_distance = clearance.distance;
-    state_.collision_pair = clearance.pair;
-    // Geometry is diagnostic; normal mounting contact does not gate control.
     while (!operations_.empty()) {
       auto [op, id] = operations_.front();
       operations_.pop_front();
-      if (op == Operation::Disable) {
-        if (state_.active_id)
-          event(state_.active_id, Outcome::Canceled, "disabled");
-        state_.mode = Mode::Disabled;
-        state_.active_id = 0;
-        target_valid_ = false;
-        gripper_requested_ = false;
-        ++state_.session;
-        ++generation_;
-        last_torque_.setZero();
-      } else if (op == Operation::Enable && state_.mode == Mode::Disabled &&
-                 stationary(config_.start_velocity_tolerance)) {
+      if (op == Operation::Enable && state_.mode == Mode::Disabled &&
+          stationary(config_.start_velocity_tolerance)) {
         reference_ = boundedFeedback();
         velocity_.setZero();
         acceleration_.setZero();
-        gripper_target_ = f.gripper_q;
         state_.mode = Mode::Holding;
         state_.reason = "enabled";
         ++generation_;
@@ -791,7 +656,7 @@ Output Controller::step(const Feedback &feedback, double now,
     Vec next_q = reference_, next_v = velocity_, next_a = acceleration_;
     if (state_.mode == Mode::JointTrajectory ||
         state_.mode == Mode::CartesianPath) {
-      const auto point = planned_.sample(std::max(0.0, now - motion_at_));
+      const auto point = planned_.sample(now - motion_at_);
       next_q = point.position;
       next_v = point.velocity;
       next_a = point.acceleration;
@@ -799,7 +664,7 @@ Output Controller::step(const Feedback &feedback, double now,
                state_.mode == Mode::PoseGoal || state_.mode == Mode::Stopping) {
       std::array<double, 6> q, v, a;
       (state_.mode == Mode::Stopping ? stop_ : finite_)
-          .at_time(std::max(0.0, now - motion_at_), q, v, a);
+          .at_time(now - motion_at_, q, v, a);
       next_q = vector(q);
       next_v = vector(v);
       next_a = vector(a);
@@ -866,7 +731,7 @@ Output Controller::step(const Feedback &feedback, double now,
       // Advance by elapsed time, as finite trajectories do. A delayed wakeup
       // must not permanently slow the reference clock relative to timestamps.
       // Suppress nanosecond-scale subtraction roundoff: tiny residual segments
-      // otherwise keep a settled Ruckig reference and geometry cache moving.
+      // otherwise keep a settled Ruckig reference moving.
       const double elapsed =
           std::abs(dt - config_.period) < 1e-9 ? config_.period : dt;
       trajectory.at_time(elapsed, q, v, a);
@@ -968,8 +833,7 @@ Output Controller::step(const Feedback &feedback, double now,
                model_.inverseDynamics(f.q, f.dq, Vec::Zero());
     } else {
       // Computed-torque position tracking: gains have units s^-2 and s^-1.
-      // RNEA includes M(q), gravity and Coriolis exactly once; MCU arm Kp/Kd
-      // are zero.
+      // RNEA includes M(q), gravity and Coriolis exactly once.
       Vec desired_acc = acceleration_ +
                         config_.kp.cwiseProduct(reference_ - f.q) +
                         config_.kd.cwiseProduct(velocity_ - f.dq);

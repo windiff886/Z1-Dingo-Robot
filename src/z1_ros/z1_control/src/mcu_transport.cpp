@@ -11,18 +11,15 @@ struct McuTransport::Impl {
   std::unique_ptr<IOUDP> io;
   std::unique_ptr<LowLevelState> state;
   uint64_t sequence{};
-  unsigned missed{};
   bool passive_feedback{}, calibration_attempted{};
   ~Impl() {
     io.reset();
-    state.reset();
     for (auto fd : observer.descriptors)
       close(fd);
   }
 };
 McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
-  if (c.receive_budget_us == 0 || c.receive_budget_us > 10000 ||
-      !std::isfinite(c.period) || c.period <= 0 ||
+  if (c.receive_budget_us == 0 || !std::isfinite(c.period) || c.period <= 0 ||
       c.receive_budget_us >= c.period * 1e6)
     throw std::runtime_error("invalid MCU receive budget/period");
   auto &p = *impl_;
@@ -62,19 +59,12 @@ Exchange McuTransport::exchange(const Output &output, double) {
     }
   }
   LowLevelCmd cmd;
-  if (!output.q.allFinite() || !output.dq.allFinite() ||
-      !output.tau.allFinite() || !output.kp.allFinite() ||
-      !output.kd.allFinite())
-    throw std::runtime_error("nonfinite low-level arm command");
-  if (!std::isfinite(output.gripper_q) || output.gripper_q < -1 ||
-      output.gripper_q > 0) {
-    std::ostringstream detail;
-    detail << "invalid gripper command: position=" << output.gripper_q
-           << " rad, allowed range=[-1, 0]";
-    throw std::runtime_error(detail.str());
-  }
   // Firmware position gains and feedforward torque are dispatched to MCU.
-  if (output.enabled)
+  if (output.enabled) {
+    if (!output.q.allFinite() || !output.dq.allFinite() ||
+        !output.tau.allFinite() || !output.kp.allFinite() ||
+        !output.kd.allFinite())
+      throw std::runtime_error("nonfinite low-level arm command");
     for (int i = 0; i < 6; ++i) {
       cmd.q[i] = output.q[i];
       cmd.dq[i] = output.dq[i];
@@ -82,10 +72,18 @@ Exchange McuTransport::exchange(const Output &output, double) {
       cmd.Kp[i] = output.kp[i];
       cmd.Kd[i] = output.kd[i];
     }
-  if (output.enabled && p.observer.motor_count == 8) {
-    cmd.q[6] = output.gripper_q;
-    cmd.Kp[6] = output.gripper_kp;
-    cmd.Kd[6] = output.gripper_kd;
+    if (p.observer.motor_count == 8) {
+      if (!std::isfinite(output.gripper_q) || output.gripper_q < -1 ||
+          output.gripper_q > 0) {
+        std::ostringstream detail;
+        detail << "invalid gripper command: position=" << output.gripper_q
+               << " rad, allowed range=[-1, 0]";
+        throw std::runtime_error(detail.str());
+      }
+      cmd.q[6] = output.gripper_q;
+      cmd.Kp[6] = output.gripper_kp;
+      cmd.Kd[6] = output.gripper_kd;
+    }
   }
   p.io->sendRecv(&cmd, p.state.get());
   Exchange e;
@@ -134,9 +132,7 @@ Exchange McuTransport::exchange(const Output &output, double) {
           }
         }
       }
-    p.missed = 0;
   } else {
-    ++p.missed;
     e.error = "no valid new MCU packet";
   }
   if (!e.sent) {
@@ -153,12 +149,12 @@ CalibrationReply McuTransport::calibrate(unsigned reply_timeout_us) {
   const double age = std::chrono::duration<double>(
                          std::chrono::steady_clock::now() - p.observer.received)
                          .count();
-  if (reply_timeout_us < 1000 || reply_timeout_us > 1000000)
-    return {CalibrationCode::NotAttempted, "reply timeout must be 1..1000 ms"};
+  if (reply_timeout_us == 0)
+    return {CalibrationCode::NotAttempted, "reply timeout must be positive"};
   if (p.calibration_attempted)
     return {CalibrationCode::NotAttempted,
             "calibration already attempted on this connection"};
-  if (!p.passive_feedback || age < 0 || age > 0.25)
+  if (!p.passive_feedback || age > 0.25)
     return {CalibrationCode::NotAttempted,
             "recent valid passive feedback is required"};
 
@@ -180,8 +176,6 @@ CalibrationReply McuTransport::calibrate(unsigned reply_timeout_us) {
   p.observer.budget_us = reply_timeout_us;
   p.observer.fresh = false;
   p.observer.sent = true;
-  p.observer.last_length = 0;
-  p.observer.state_bytes.fill(0);
   p.passive_feedback = false;
   p.calibration_attempted = true;
   const bool accepted = p.io->calibration();

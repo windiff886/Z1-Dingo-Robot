@@ -1,9 +1,11 @@
 #include "z1_control/transport.hpp"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <array>
 #include <atomic>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -31,6 +33,7 @@ public:
   int protocol, joints;
   bool combined_handshake;
   std::atomic<unsigned> commands{0};
+  std::atomic<bool> active_command{false};
   std::atomic<unsigned> calibrations{0};
   Firmware(int v, int n, bool combined = true)
       : protocol(v), joints(n), combined_handshake(combined) {
@@ -88,6 +91,8 @@ public:
         ++stage;
       } else {
         ++commands;
+        if (std::any_of(bytes, bytes + n, [](uint8_t byte) { return byte != 0; }))
+          active_command = true;
         size = joints * (protocol == 1 ? 16 : 22);
         for (int j = 0; j < joints; ++j) {
           const size_t stride = protocol == 1 ? 16 : 22;
@@ -158,6 +163,30 @@ int main() {
                         std::abs(a.feedback.gripper_tau + 1.5) < 1e-6,
                     "gripper feedback mixed with main arm joints");
           }
+          Output passive;
+          passive.q[0] = std::numeric_limits<double>::quiet_NaN();
+          passive.gripper_q = 1;
+          auto ignored = driver.exchange(passive, now());
+          require(ignored.sent && ignored.feedback.fresh && !server.active_command,
+                  "disabled output fields changed the passive wire command");
+          Output active = passive;
+          active.enabled = true;
+          bool invalid_arm_rejected = false;
+          try {
+            driver.exchange(active, now());
+          } catch (const std::runtime_error &) {
+            invalid_arm_rejected = true;
+          }
+          require(invalid_arm_rejected, "nonfinite enabled arm command accepted");
+          active.q.setZero();
+          bool invalid_gripper_rejected = false;
+          try {
+            driver.exchange(active, now());
+          } catch (const std::runtime_error &) {
+            invalid_gripper_rejected = true;
+          }
+          require(invalid_gripper_rejected == (joints == 7),
+                  "gripper validation did not match the connected hardware");
           auto b = driver.exchange(command, now());
           require(b.feedback.fresh && b.feedback.sequence > a.feedback.sequence,
                   "identical values treated as stale");
@@ -211,6 +240,15 @@ int main() {
                     << ": real UDP handshake, decode, stationary freshness, drop "
                        "and length errors passed\n";
         }
+    {
+      Firmware server(2, 6);
+      auto slow = cfg;
+      slow.period = 0.03;
+      slow.receive_budget_us = 20000;
+      McuTransport driver(slow);
+      require(driver.exchange(Output{}, now()).feedback.fresh,
+              "receive budget below its configured period was rejected");
+    }
     cfg.local_port = 19081;
     {
       Firmware server(1, 6);
@@ -238,7 +276,7 @@ int main() {
               "invalid calibration timeout was allowed");
       require(server.calibrations == 0, "preflight failure sent calibration");
       const double started = now();
-      require(driver.calibrate(200000).code == CalibrationCode::Succeeded,
+      require(driver.calibrate(1000001).code == CalibrationCode::Succeeded,
               "official calibration reply was not accepted");
       require(now() - started >= 1.9, "official calibration wait was bypassed");
       driver.exchange(Output{}, now());

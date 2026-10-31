@@ -172,6 +172,41 @@ class DualArmCalibration(unittest.TestCase):
         self.assertEqual(self.left.commands + self.right.commands, [])
         self.assertEqual(self.left.calibrations + self.right.calibrations, 0)
 
+    def test_positive_timing_values_use_relationships_not_arbitrary_caps(self):
+        self.options['arms'] = ['left']
+        original = self.options.copy()
+        cases = (
+            {'sample_count': 1001, 'feedback_timeout_ms': 20000},
+            {'sample_interval_ms': 101, 'feedback_timeout_ms': 1000},
+            {'feedback_timeout_ms': 50},
+            {'reply_timeout_ms': 1001},
+            {'sample_interval_ms': 20, 'receive_budget_us': 15000},
+        )
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
+            occupied.bind(('0.0.0.0', self.communication['left_arm']['controller']['local_port']))
+            for values in cases:
+                with self.subTest(values=values):
+                    self.options = dict(original, **values)
+                    result = self.run_tool()
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn('UDP bind failed', result.stdout)
+        self.assertEqual(self.left.received_packets + self.right.received_packets, [])
+
+    def test_sampling_window_multiplication_cannot_wrap(self):
+        self.options.update(sample_count=4294967295, sample_interval_ms=2,
+                            feedback_timeout_ms=4294967295, receive_budget_us=1000)
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('feedback_timeout_ms must exceed the sampling window', result.stdout)
+        self.assertEqual(self.left.received_packets + self.right.received_packets, [])
+
+    def test_reply_timeout_must_fit_transport_microseconds(self):
+        self.options['reply_timeout_ms'] = 4294968
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('reply_timeout_ms is outside its supported range', result.stdout)
+        self.assertEqual(self.left.received_packets + self.right.received_packets, [])
+
     def test_invalid_reference_rejected_before_connecting(self):
         for reference in (None, [0.0] * 5, [0.0] * 7,
                           [0.0, 0.0, 0.0, float('nan'), 0.0, 0.0],

@@ -32,4 +32,7 @@ if (CATKIN_ENABLE_TESTING)
   find_package(roslint REQUIRED)
   roslint_cpp()
   roslint_add_test()
+  find_package(PythonInterp 3 REQUIRED)
+  add_test(NAME dingo_wireless_monitor COMMAND ${PYTHON_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wireless_monitor.py)
 endif()

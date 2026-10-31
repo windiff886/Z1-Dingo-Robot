@@ -128,7 +128,7 @@ CartesianReference interpolate(const CartesianReference &a,
   return out;
 }
 JointReference extrapolate(JointReference p, double time, double maximum) {
-  const double t = std::clamp(time - p.time, 0.0, maximum);
+  const double t = std::min(time - p.time, maximum);
   p.position += p.velocity * t + 0.5 * p.acceleration * t * t;
   p.velocity += p.acceleration * t;
   if (time - p.time > maximum) {
@@ -140,7 +140,7 @@ JointReference extrapolate(JointReference p, double time, double maximum) {
 }
 CartesianReference extrapolate(CartesianReference p, double time,
                                double maximum) {
-  const double t = std::clamp(time - p.time, 0.0, maximum);
+  const double t = std::min(time - p.time, maximum);
   p.pose.translation() +=
       p.velocity.head<3>() * t + 0.5 * p.acceleration.head<3>() * t * t;
   const Eigen::Vector3d r =

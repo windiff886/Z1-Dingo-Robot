@@ -45,22 +45,3 @@ stationary_window: 0.1
 settle_timeout: 3.0
 tcp_position_tolerance: 0.005
 tcp_orientation_tolerance: 0.025
-# Diagnostic distance pairs; these mounting envelopes overlap by design.
-ignored_collision_pairs:
-  - [link00, link01]
-  - [link01, link02]
-  - [link02, link03]
-  - [link03, link04]
-  - [link04, link05]
-  - [link05, link06]
-  - [link06, tool]
-  - [link00, link02]
-  - [link04, link06]
-  - [link05, tool]
-# Diagnostic fixed structures use metres and base-frame xyz/rpy.
-# Example schema; replace with measured geometry for useful diagnostics:
-# - name: support
-#   size: [0.1, 0.1, 0.2]
-#   xyz: [0.3, 0.0, -0.2]
-#   rpy: [0.0, 0.0, 0.0]
-fixed_boxes: []

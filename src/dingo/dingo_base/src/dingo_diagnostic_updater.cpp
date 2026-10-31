@@ -30,6 +30,8 @@
  * Please send comments, questions, or patches to code@clearpathrobotics.com
  */
 
+#include <cerrno>
+#include <cstring>
 #include <string>
 #include <sys/types.h>
 #include <ifaddrs.h>
@@ -239,20 +241,27 @@ void DingoDiagnosticUpdater::batteryStateCallback(const sensor_msgs::BatteryStat
   last_battery_state_ = *battery_state;
 }
 
-void DingoDiagnosticUpdater::wirelessMonitorCallback(const ros::TimerEvent& te)
+void DingoDiagnosticUpdater::wirelessMonitorCallback(const ros::TimerEvent&)
 {
   std_msgs::Bool wifi_connected_msg;
   wifi_connected_msg.data = false;
 
   // Get system structure of interface IP addresses.
   struct ifaddrs* ifa_head;
-  getifaddrs(&ifa_head);
+  if (getifaddrs(&ifa_head) != 0)
+  {
+    ROS_WARN_STREAM("Unable to inspect wireless interface " << wireless_interface_
+                    << ": " << std::strerror(errno));
+    wifi_connected_pub_.publish(wifi_connected_msg);
+    return;
+  }
 
   // Iterate structure looking for the wireless interface.
   struct ifaddrs* ifa_current = ifa_head;
   while (ifa_current != NULL)
   {
-    if (strcmp(ifa_current->ifa_name, wireless_interface_.c_str()) == 0)
+    if (ifa_current->ifa_addr &&
+        std::strcmp(ifa_current->ifa_name, wireless_interface_.c_str()) == 0)
     {
       int family = ifa_current->ifa_addr->sa_family;
       if (family == AF_INET || family == AF_INET6)

@@ -4,7 +4,6 @@
 #include <ros/callback_queue.h>
 #include <ros/ros.h>
 #include <sensor_msgs/JointState.h>
-#include <set>
 #include <stdexcept>
 #include <z1_msgs/CartesianReference.h>
 #include <z1_msgs/ControlCommand.h>
@@ -82,8 +81,6 @@ class Node {
   double command_age_{0.2}, publish_rate_{100};
   ros::Publisher joints_, commands_, tcp_, status_, results_;
   std::vector<ros::Subscriber> subscriptions_;
-  // Serialize low-rate result messages between callback threads; ROS publisher
-  // itself is thread-safe.
   bool header(const std_msgs::Header &h, bool stream, bool base_required) {
     if (base_required && h.frame_id != base_frame_)
       return false;
@@ -161,52 +158,6 @@ public:
     auto model = z1::defaultModelConfig(urdf);
     params_.param<std::string>("tool_frame", model.tool_frame, "tool");
     readVector(params_, "gravity", model.gravity);
-    XmlRpc::XmlRpcValue pairs;
-    if (params_.getParam("ignored_collision_pairs", pairs)) {
-      if (pairs.getType() != XmlRpc::XmlRpcValue::TypeArray)
-        throw std::runtime_error("collision pairs must be an array");
-      model.ignored_pairs.clear();
-      for (int i = 0; i < pairs.size(); ++i) {
-        auto &a = pairs[i];
-        if (a.getType() != XmlRpc::XmlRpcValue::TypeArray || a.size() != 2 ||
-            a[0].getType() != XmlRpc::XmlRpcValue::TypeString ||
-            a[1].getType() != XmlRpc::XmlRpcValue::TypeString)
-          throw std::runtime_error("invalid collision pair");
-        model.ignored_pairs.emplace_back(static_cast<std::string>(a[0]),
-                                         static_cast<std::string>(a[1]));
-      }
-    }
-    XmlRpc::XmlRpcValue boxes;
-    if (params_.getParam("fixed_boxes", boxes)) {
-      if (boxes.getType() != XmlRpc::XmlRpcValue::TypeArray)
-        throw std::runtime_error("fixed_boxes must be an array");
-      for (int i = 0; i < boxes.size(); ++i) {
-        auto &b = boxes[i];
-        if (b.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
-            !b.hasMember("name") || !b.hasMember("size") ||
-            !b.hasMember("xyz") || !b.hasMember("rpy"))
-          throw std::runtime_error("invalid fixed box");
-        z1::FixedBox box;
-        box.name = static_cast<std::string>(b["name"]);
-        Eigen::Vector3d xyz, rpy;
-        for (auto key : {"size", "xyz", "rpy"})
-          if (b[key].getType() != XmlRpc::XmlRpcValue::TypeArray ||
-              b[key].size() != 3)
-            throw std::runtime_error("fixed box vector must have 3 entries");
-        for (int j = 0; j < 3; ++j) {
-          box.size[j] = number(b["size"][j]);
-          xyz[j] = number(b["xyz"][j]);
-          rpy[j] = number(b["rpy"][j]);
-        }
-        box.placement.translation() = xyz;
-        box.placement.linear() =
-            (Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()) *
-             Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()) *
-             Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX()))
-                .toRotationMatrix();
-        model.fixed_boxes.push_back(box);
-      }
-    }
     if (!params_.getParam("mcu_ip", ip) ||
         !params_.getParam("local_port", port) ||
         !params_.getParam("receive_budget_us", budget))

@@ -44,7 +44,7 @@ UdpPort::UdpPort(std::string, uint, size_t) : IOPort("unsupported server", 1) {
   throw std::runtime_error("MCU observer supports client sockets only");
 }
 IOPortStatus UdpPort::send(uint8_t *data, size_t length) {
-  if (!z1::udp::active || length > 1500 || length == 0)
+  if (length > 1500 || length == 0)
     return IOPortStatus::err;
   if (crc32_open_) {
     if (length < 4)
@@ -65,7 +65,7 @@ size_t receive_packet(int socket_fd, const sockaddr_in &target,
                       std::array<uint8_t, 1500> &buffer, uint8_t *data,
                       size_t length, bool allow_prefix) {
   auto *o = z1::udp::active;
-  if (!o || length > 1500 || length == 0)
+  if (length > buffer.size() || length == 0)
     return 0;
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::microseconds(o->budget_us);
@@ -122,9 +122,8 @@ IOPortStatus UdpPort::recv(uint8_t *data, size_t length) {
   if (crc32_open_ && (length < 4 || !check_crc32(data, length)))
     return IOPortStatus::crcbad;
   isConnect_ = true;
-  if (z1::udp::active)
-    z1::udp::active->fresh = true;
-  if (z1::udp::active && length <= z1::udp::active->state_bytes.size())
+  z1::udp::active->fresh = true;
+  if (length <= z1::udp::active->state_bytes.size())
     memcpy(z1::udp::active->state_bytes.data(), data, length);
   return IOPortStatus::ok;
 }

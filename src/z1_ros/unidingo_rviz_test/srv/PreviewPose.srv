@@ -1,0 +1,11 @@
+# Pose uses this arm's base frame; seed follows joint1..joint6 in rad.
+std_msgs/Header header
+float64[6] start_positions
+geometry_msgs/Pose target_pose
+float64 speed_scale
+---
+bool success
+string reason
+string model_revision
+float64 start_tolerance
+trajectory_msgs/JointTrajectory trajectory

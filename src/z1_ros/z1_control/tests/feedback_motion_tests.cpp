@@ -2,6 +2,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -201,6 +202,45 @@ void realMotionAndStaleHistory(const ModelConfig &m) {
           "retained feedback manufactured stationary samples");
 }
 
+void denseStationaryHistory(const ModelConfig &m) {
+  Fixture f(m);
+  f.feedback.dq.setConstant(.09);
+  for (int i = 0; i < 2200; ++i)
+    f.tick(.00005);
+  Vec target = measuredHome().cwiseMax(f.model.lower()).cwiseMin(f.model.upper());
+  target[0] += .01;
+  require(f.controller.goal(1, target),
+          "sample-count ceiling truncated the configured stationary window");
+}
+
+void invalidFeedback(const ModelConfig &m) {
+  for (double value : {std::numeric_limits<double>::quiet_NaN(),
+                       std::numeric_limits<double>::infinity(),
+                       -std::numeric_limits<double>::infinity()}) {
+    for (int field = 0; field < 4; ++field) {
+      Fixture f(m);
+      f.tick();
+      f.controller.operate(Operation::Enable);
+      f.tick();
+      auto bad = f.feedback;
+      bad.sequence++;
+      bad.received_at = f.now + .004;
+      if (field == 0)
+        bad.q[0] = value;
+      else if (field == 1)
+        bad.dq[0] = value;
+      else if (field == 2)
+        bad.received_at = value;
+      else
+        bad.tau[0] = value;
+      const auto out = f.controller.step(bad, f.now + .004);
+      require(!out.enabled && !f.controller.snapshot().feedback_valid &&
+                  f.controller.snapshot().mode == Mode::Fault,
+              "nonfinite feedback escaped the measurement bounds");
+    }
+  }
+}
+
 void gripperEncoderBounds(const ModelConfig &m) {
   Fixture f(m);
   f.feedback.has_gripper = true;
@@ -308,6 +348,8 @@ int main(int argc, char **argv) {
     boundedStarts(m);
     noisyStartSettleAndStop(m);
     realMotionAndStaleHistory(m);
+    denseStationaryHistory(m);
+    invalidFeedback(m);
     gripperEncoderBounds(m);
     stalledFeedbackIsNotSuccess(m);
     if (argc > 2)

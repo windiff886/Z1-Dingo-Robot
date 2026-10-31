@@ -26,18 +26,6 @@ int main(int argc, char **argv) {
   Model m(mc);
   Vec q;
   q << 0, .8, -1.1, .3, 0, 0;
-  auto initial = m.clearance(q);
-  allocations = 0;
-  measure = true;
-  auto cl = m.clearance(q);
-  measure = false;
-  std::printf("clearance_same_q_new_calls=%u,pair=%s\n", allocations,
-              cl.pair.c_str());
-  allocations = 0;
-  measure = true;
-  auto view = m.clearanceSample(q);
-  measure = false;
-  std::printf("clearance_sample_same_q_new_calls=%u\n", allocations);
   allocations = 0;
   measure = true;
   auto fk = m.fk(q);

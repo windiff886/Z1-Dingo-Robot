@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(Boost REQUIRED COMPONENTS system)
+find_package(Threads REQUIRED)
 
 catkin_package(
 #  INCLUDE_DIRS include
@@ -32,16 +33,21 @@ add_executable(PanTiltDriverNode
 )  
 target_link_libraries(PanTiltDriverNode
   ${catkin_LIBRARIES}
+  ${CMAKE_THREAD_LIBS_INIT}
 )
 add_dependencies(PanTiltDriverNode pan_tilt_msgs_generate_messages_cpp)
 
-# add_executable(test2
-#   src/test.cpp
-#   src/PanTiltDriver.cpp
-#   src/QThread.cpp
-#   src/QSerialPort.cpp
-#   src/QSerialFrame.cpp
-# )  
-# target_link_libraries(test2
-#   ${catkin_LIBRARIES}
-# )
+if(CATKIN_ENABLE_TESTING)
+  add_executable(pan_tilt_lifecycle_test
+    tests/lifecycle_test.cpp src/PanTiltDriver.cpp src/QThread.cpp)
+  target_include_directories(pan_tilt_lifecycle_test BEFORE PRIVATE tests/stubs)
+  target_link_libraries(pan_tilt_lifecycle_test ${CMAKE_THREAD_LIBS_INIT})
+  add_test(NAME pan_tilt_lifecycle COMMAND pan_tilt_lifecycle_test)
+  set_tests_properties(pan_tilt_lifecycle PROPERTIES TIMEOUT 10)
+  add_executable(pan_tilt_serial_startup_test
+    tests/serial_startup_test.cpp src/modbus_rtu_master.cpp)
+  target_include_directories(pan_tilt_serial_startup_test BEFORE PRIVATE tests/stubs)
+  target_link_libraries(pan_tilt_serial_startup_test ${CMAKE_THREAD_LIBS_INIT})
+  add_test(NAME pan_tilt_serial_startup COMMAND pan_tilt_serial_startup_test)
+  set_tests_properties(pan_tilt_serial_startup PROPERTIES TIMEOUT 10)
+endif()

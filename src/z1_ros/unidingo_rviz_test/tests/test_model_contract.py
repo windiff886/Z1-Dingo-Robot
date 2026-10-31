@@ -13,7 +13,7 @@ PACKAGES = {ET.parse(p).getroot().findtext('name'): p.parent
             for p in (ROOT / 'src').rglob('package.xml')}
 
 
-def expand(**mappings):
+def expand_model(path, **mappings):
     # Resolve this repo's package:// / $(find) references without a ROS 1 install.
     # Noetic xacro delegates to roslaunch rather than exposing its own
     # substitution_args module. Intercept only package lookup on both versions.
@@ -25,8 +25,11 @@ def expand(**mappings):
         return original(value)
 
     with patch.object(xacro, 'eval_extension', side_effect=extension):
-        return ET.fromstring(xacro.process_file(str(
-            PACKAGES['uni_dingo'] / 'urdf/uni_dingo_dual_arm.urdf.xacro'), mappings=mappings).toxml())
+        return ET.fromstring(xacro.process_file(str(path), mappings=mappings).toxml())
+
+
+def expand(**mappings):
+    return expand_model(PACKAGES['uni_dingo'] / 'urdf/uni_dingo_dual_arm.urdf.xacro', **mappings)
 
 
 def rotation(axis, angle):
@@ -114,6 +117,49 @@ class ModelContract(unittest.TestCase):
                 for bound in ('lower', 'upper'):
                     self.assertAlmostEqual(float(display.find('limit').get(bound)),
                                            float(control.find('limit').get(bound)))
+
+    def test_official_groups_named_states_and_tcp_frames(self):
+        srdf = ET.parse(PACKAGES['unidingo_rviz_test'] / 'config/dual_arm.srdf').getroot()
+        self.assertEqual(srdf.get('name'), self.robot.get('name'))
+        for side in ('left', 'right'):
+            group = side + '_arm'
+            chain = srdf.find("group[@name='{}']/chain".format(group))
+            self.assertEqual(chain.attrib, {'base_link': side + '_link00', 'tip_link': side + '_tool'})
+            home = srdf.find("group_state[@name='home'][@group='{}']".format(group))
+            values = {j.get('name'): float(j.get('value')) for j in home}
+            self.assertEqual([values[side + '_joint' + str(i)] for i in range(1, 7)],
+                             [0, 0, 0, -.07435, 0, 0])
+            nominal = {name: value for name, value in values.items()}
+            base = fk(self.robot, side + '_link00', {})
+            np.testing.assert_allclose(np.linalg.inv(base) @ fk(self.robot, side + '_tool', nominal),
+                fk(self.control, 'tool', {'joint' + str(i): values[side + '_joint' + str(i)] for i in range(1, 7)}), atol=1e-12)
+
+    def test_official_velocity_limits_match_control_and_display(self):
+        # Unitree unitree_ros 8ebecd88, xacro/const.xacro: velocityMax = 3.1415 rad/s.
+        for i in range(1, 7):
+            control = self.control.find("joint[@name='joint{}']/limit".format(i))
+            self.assertEqual(float(control.get('velocity')), 3.1415)
+            for side in ('left', 'right'):
+                display = self.robot.find("joint[@name='{}_joint{}']/limit".format(side, i))
+                for field in ('lower', 'upper', 'velocity', 'effort'):
+                    self.assertEqual(float(display.get(field)), float(control.get(field)))
+
+    def test_original_gripper_inertials_replace_the_point_payload(self):
+        # Official gripper at jointGripper = 0, reduced to the six arm coordinates.
+        mass = 0.
+        for link in ('gripperStator', 'gripperMover'):
+            body = self.control.find("link[@name='{}']/inertial".format(link))
+            expected = self.robot.find("link[@name='left_{}']/inertial".format(link))
+            for tag in ('origin', 'mass', 'inertia'):
+                for field, value in expected.find(tag).attrib.items():
+                    np.testing.assert_allclose(np.fromstring(body.find(tag).get(field), sep=' '),
+                                               np.fromstring(value, sep=' '), atol=1e-12)
+            mass += float(body.find('mass').get('value'))
+        self.assertAlmostEqual(mass, .80224957)
+        self.assertIsNone(self.control.find("link[@name='tool']/inertial"))
+        closed = self.control.find("joint[@name='gripper_closed_mount']")
+        self.assertEqual(closed.get('type'), 'fixed')
+        self.assertEqual(closed.find('child').get('link'), 'gripperMover')
 
     def test_mount_and_tcp_offsets(self):
         for side, y in (('left', 0.11708), ('right', -0.11708)):

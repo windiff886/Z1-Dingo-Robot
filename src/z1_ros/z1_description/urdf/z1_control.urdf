@@ -1,4 +1,7 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0"?>
+<!-- Unitree model limits and original gripper inertials.
+     Six-axis reduction: the gripper is fixed closed (jointGripper = 0 rad).
+     tool remains a massless TCP frame at the gripper stator mount. -->
 <robot name="z1_description">
   <link name="link00">
     <visual>
@@ -25,7 +28,7 @@
     <child link="link01" />
     <axis xyz="0 0 1" />
     <dynamics damping="1.0" friction="1.0" />
-    <limit effort="30.0" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="10" />
+    <limit effort="30.0" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="3.1415" />
   </joint>
   <link name="link01">
     <visual>
@@ -52,7 +55,7 @@
     <child link="link02" />
     <axis xyz="0 1 0" />
     <dynamics damping="2.0" friction="2.0" />
-    <limit effort="60.0" lower="0.0" upper="2.9670597283903604" velocity="10" />
+    <limit effort="60.0" lower="0.0" upper="2.9670597283903604" velocity="3.1415" />
   </joint>
   <link name="link02">
     <visual>
@@ -91,7 +94,7 @@
     <child link="link03" />
     <axis xyz="0 1 0" />
     <dynamics damping="1.0" friction="1.0" />
-    <limit effort="30.0" lower="-2.8797932657906435" upper="0.0" velocity="10" />
+    <limit effort="30.0" lower="-2.8797932657906435" upper="0.0" velocity="3.1415" />
   </joint>
   <link name="link03">
     <visual>
@@ -124,7 +127,7 @@
     <child link="link04" />
     <axis xyz="0 1 0" />
     <dynamics damping="1.0" friction="1.0" />
-    <limit effort="30.0" lower="-1.5184364492350666" upper="1.5184364492350666" velocity="10" />
+    <limit effort="30.0" lower="-1.5184364492350666" upper="1.5184364492350666" velocity="3.1415" />
   </joint>
   <link name="link04">
     <visual>
@@ -151,7 +154,7 @@
     <child link="link05" />
     <axis xyz="0 0 1" />
     <dynamics damping="1.0" friction="1.0" />
-    <limit effort="30.0" lower="-1.3439035240356338" upper="1.3439035240356338" velocity="10" />
+    <limit effort="30.0" lower="-1.3439035240356338" upper="1.3439035240356338" velocity="3.1415" />
   </joint>
   <link name="link05">
     <visual>
@@ -178,7 +181,7 @@
     <child link="link06" />
     <axis xyz="1 0 0" />
     <dynamics damping="1.0" friction="1.0" />
-    <limit effort="30.0" lower="-2.792526803190927" upper="2.792526803190927" velocity="10" />
+    <limit effort="30.0" lower="-2.792526803190927" upper="2.792526803190927" velocity="3.1415" />
   </joint>
   <link name="link06">
     <visual>
@@ -199,22 +202,54 @@
       <inertia ixx="0.00018328" ixy="-1.22e-06" ixz="-5.4e-07" iyy="0.0001475" iyz="-8e-08" izz="0.0001468" />
     </inertial>
   </link>
-  <link name="tool">
-    <collision>
-      <origin xyz="0.045 0 0" rpy="0 0 0" />
-      <geometry>
-        <box size="0.09 0.08 0.08" />
-      </geometry>
-    </collision>
-    <inertial>
-      <origin xyz="0.045 0 0" rpy="0 0 0" />
-      <mass value="0.25" />
-      <inertia ixx="0.00027" iyy="0.00030" izz="0.00030" ixy="0" ixz="0" iyz="0" />
-    </inertial>
-  </link>
+  <link name="tool" />
   <joint name="tool_mount" type="fixed">
     <parent link="link06" />
     <child link="tool" />
     <origin xyz="0.051 0 0" rpy="0 0 0" />
+  </joint>
+  <link name="gripperStator">
+    <visual>
+      <geometry>
+        <mesh filename="package://z1_description/meshes/visual/z1_GripperStator.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://z1_description/meshes/collision/z1_GripperStator.STL" scale="1 1 1" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.04764427 -0.00035819 -0.00249162" />
+      <mass value="0.52603655" />
+      <inertia ixx="0.00038683" ixy="3.59e-06" ixz="-7.662e-05" iyy="0.00068614" iyz="-2.09e-06" izz="0.00066293" />
+    </inertial>
+  </link>
+  <link name="gripperMover">
+    <visual>
+      <geometry>
+        <mesh filename="package://z1_description/meshes/visual/z1_GripperMover.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://z1_description/meshes/collision/z1_GripperMover.STL" scale="1 1 1" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.01320633 0.00476708 0.00380534" />
+      <mass value="0.27621302" />
+      <inertia ixx="0.00017716" ixy="-1.683e-05" ixz="1.786e-05" iyy="0.00026787" iyz="-2.62e-06" izz="0.00035728" />
+    </inertial>
+  </link>
+  <joint name="gripperStator" type="fixed">
+    <origin rpy="0 0 0" xyz="0.051 0.0 0.0" />
+    <parent link="link06" />
+    <child link="gripperStator" />
+  </joint>
+  <joint name="gripper_closed_mount" type="fixed">
+    <origin rpy="0 0 0" xyz="0.049 0.0 0" />
+    <parent link="gripperStator" />
+    <child link="gripperMover" />
   </joint>
 </robot>
