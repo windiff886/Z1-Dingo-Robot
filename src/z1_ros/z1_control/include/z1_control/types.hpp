@@ -47,16 +47,33 @@ struct Feedback {
   uint64_t sequence{};
   bool fresh{}, motor_fault{}, transport_fault{}, has_gripper{};
   double gripper_q{}, gripper_dq{}, gripper_tau{};
+  bool has_temperature{};
+  std::array<int8_t, 8> temperature{};
 };
 struct Output {
   Vec q{Vec::Zero()}, dq{Vec::Zero()}, tau{Vec::Zero()};
   Vec kp{Vec::Zero()}, kd{Vec::Zero()};
   bool enabled{};
   double gripper_q{}, gripper_kp{}, gripper_kd{};
+  // Requested joint-side friction feedforward, before total torque/rate limits.
+  Vec friction_feedforward{Vec::Zero()};
+  bool friction_compensation_enabled{};
 };
 struct ModelConfig {
   std::string urdf, tool_frame{"tool"};
   Eigen::Vector3d gravity{0, 0, -9.81};
+  // MCU discovery selects the installed tool before constructing any model.
+  // Native callers retain the existing gripper-equipped model by default.
+  bool has_gripper{true};
+};
+struct FrictionConfig {
+  bool enabled{true};
+  Vec coulomb{Vec::Zero()}, viscous{Vec::Zero()};
+  double velocity_scale{0.01}, impedance_velocity_filter{0.02};
+  double impedance_torque_rate{1.0};
+  // Optional acquisition provenance. -1 / empty permits manual coefficients.
+  int has_gripper{-1};
+  std::string model_revision;
 };
 struct Config {
   double period{0.002}, feedback_timeout{0.08}, stream_timeout{0.2};
@@ -79,6 +96,7 @@ struct Config {
       mcu_kd{Vec::Constant(5)};
   Vec stiffness{(Vec() << 30, 30, 30, 0.2, 0.2, 0.2).finished()};
   Vec damping{(Vec() << 4, 4, 4, 0.02, 0.02, 0.02).finished()};
+  FrictionConfig friction;
 };
 struct Snapshot {
   Mode mode{Mode::Disabled};
@@ -98,6 +116,7 @@ struct Snapshot {
   std::string model_revision;
   // Last accepted finite plan; seconds and dimensionless global time dilation.
   double trajectory_duration{}, trajectory_time_scale{1};
+  bool friction_compensation_enabled{};
 };
 inline bool validPose(const Pose &p) {
   return p.matrix().allFinite() &&

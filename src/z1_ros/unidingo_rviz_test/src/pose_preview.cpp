@@ -23,6 +23,8 @@ class Preview {
   ros::NodeHandle private_{"~"};
   z1::Config config_;
   std::unique_ptr<z1::Model> model_;
+  z1::ModelConfig model_config_;
+  std::string controller_namespace_;
   std::string prefix_, base_;
   ros::ServiceServer service_;
 
@@ -32,6 +34,7 @@ public:
     if (!private_.getParam("controller_namespace", ns))
       throw std::runtime_error("controller_namespace is required");
     const ros::NodeHandle controller(ns);
+    controller_namespace_ = ns;
     z1::ModelConfig model;
     if (!controller.getParam("model_file", model.urdf) ||
         !controller.getParam("joint_prefix", prefix_))
@@ -39,6 +42,7 @@ public:
     base_ = prefix_ + "link00";
     controller.param<std::string>("tool_frame", model.tool_frame, "tool");
     readVector(controller, "gravity", model.gravity);
+    controller.param("device_has_gripper", model.has_gripper, true);
     controller.param("period", config_.period, config_.period);
     controller.param("joint_limit_tolerance", config_.joint_limit_tolerance,
                       config_.joint_limit_tolerance);
@@ -48,13 +52,24 @@ public:
     readVector(controller, "acceleration", config_.acceleration);
     readVector(controller, "jerk", config_.jerk);
     model_ = std::make_unique<z1::Model>(model);
+    model_config_ = model;
     service_ = private_.advertiseService("preview", &Preview::preview, this);
   }
   bool preview(unidingo_rviz_test::PreviewPose::Request &req,
                unidingo_rviz_test::PreviewPose::Response &out) {
-    out.model_revision = model_->revision();
     out.start_tolerance = config_.position_tolerance;
     try {
+      // MCU discovery may finish after the preview process has started.
+      bool installed = model_config_.has_gripper;
+      ros::param::get(controller_namespace_ + "/device_has_gripper", installed);
+      if (installed != model_config_.has_gripper) {
+        auto selected = model_config_;
+        selected.has_gripper = installed;
+        auto candidate = std::make_unique<z1::Model>(selected);
+        model_ = std::move(candidate);
+        model_config_ = selected;
+      }
+      out.model_revision = model_->revision();
       if (req.header.frame_id != base_)
         throw std::invalid_argument("preview target must use " + base_);
       const auto &p = req.target_pose;

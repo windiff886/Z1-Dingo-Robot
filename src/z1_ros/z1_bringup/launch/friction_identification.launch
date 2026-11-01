@@ -1,0 +1,11 @@
+<!-- Owns the MCU ports: stop other arm controller launches before using this entry. -->
+<launch>
+  <include file="$(find z1_bringup)/launch/controllers.launch">
+    <arg name="disable_friction" value="true"/>
+  </include>
+  <param name="left_arm/controller/record_control_samples" value="true"/>
+  <param name="right_arm/controller/record_control_samples" value="true"/>
+  <node pkg="z1_control" type="friction_identify.py" name="friction_identification" output="screen">
+    <rosparam command="load" file="$(find z1_control)/config/friction_identification.yaml"/>
+  </node>
+</launch>

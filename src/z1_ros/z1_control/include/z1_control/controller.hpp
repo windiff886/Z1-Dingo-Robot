@@ -32,6 +32,8 @@ public:
               double received_at);
   void operate(Operation, uint64_t id = 0);
   bool gains(const Vec &stiffness, const Vec &damping);
+  // Switch only while Disabled or stationary Holding; coefficients are fixed.
+  bool frictionCompensation(bool enabled);
   bool gripper(double position);
   Output step(const Feedback &, double now,
               std::string_view transport_error = {});
@@ -54,11 +56,13 @@ private:
   void recordPosition(const Feedback &);
   Vec boundedFeedback() const;
   Vec finiteStart() const;
+  bool frictionProfileMatches() const;
   bool beginStop(const std::string &, double);
   void fault(const std::string &);
   void event(uint64_t, Outcome, const std::string &);
   void startStream(Mode, double);
   Config config_;
+  bool model_has_gripper_;
   Model model_, planning_model_;
   mutable std::mutex mutex_;
   std::mutex planning_mutex_;
@@ -77,6 +81,10 @@ private:
   ReferenceTimeline<CartesianReference> pose_references_;
   Pose impedance_reference_{Pose::Identity()};
   Vec impedance_velocity_{Vec::Zero()}, stiffness_, damping_;
+  Vec friction_velocity_{Vec::Zero()};
+  Vec last_friction_{Vec::Zero()};
+  double friction_feedback_time_{};
+  Mode friction_mode_{Mode::Disabled};
   Pose finite_pose_target_{Pose::Identity()};
   double stream_deadline_{}, motion_at_{}, duration_{}, settled_at_{},
       last_step_{}, gripper_target_{};

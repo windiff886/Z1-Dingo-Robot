@@ -11,10 +11,53 @@
 #include <pinocchio/spatial/explog.hpp>
 #include <sstream>
 #include <stdexcept>
+#include <set>
+#include <tinyxml2.h>
 namespace z1 {
+std::string effectiveModelUrdf(const ModelConfig &c) {
+  std::ifstream input(c.urdf);
+  if (!input)
+    throw std::runtime_error("cannot read control model: " + c.urdf);
+  const std::string source((std::istreambuf_iterator<char>(input)), {});
+  if (c.has_gripper)
+    return source;
+  tinyxml2::XMLDocument document;
+  if (document.Parse(source.c_str()) != tinyxml2::XML_SUCCESS ||
+      !document.FirstChildElement("robot"))
+    throw std::runtime_error("invalid control model XML");
+  auto *robot = document.FirstChildElement("robot");
+  std::set<std::string> removed{"gripperStator", "gripperMover"};
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (auto *joint = robot->FirstChildElement("joint"); joint;
+         joint = joint->NextSiblingElement("joint")) {
+      const auto *parent = joint->FirstChildElement("parent");
+      const auto *child = joint->FirstChildElement("child");
+      if (parent && child && parent->Attribute("link") &&
+          child->Attribute("link") && removed.count(parent->Attribute("link")))
+        changed |= removed.insert(child->Attribute("link")).second;
+    }
+  }
+  for (auto *element = robot->FirstChildElement(); element;) {
+    auto *next = element->NextSiblingElement();
+    const std::string kind = element->Name();
+    const auto *child = element->FirstChildElement("child");
+    if ((kind == "link" && element->Attribute("name") &&
+         removed.count(element->Attribute("name"))) ||
+        (kind == "joint" && child && child->Attribute("link") &&
+         removed.count(child->Attribute("link"))))
+      robot->DeleteChild(element);
+    element = next;
+  }
+  tinyxml2::XMLPrinter printer;
+  document.Print(&printer);
+  return printer.CStr();
+}
 Model::Model(const ModelConfig &c) : impl_(new Impl) {
   auto &p = *impl_;
-  pinocchio::urdf::buildModel(c.urdf, p.model);
+  const auto source = effectiveModelUrdf(c);
+  pinocchio::urdf::buildModelFromXML(source, p.model);
   if (p.model.nq != 6 || p.model.nv != 6)
     throw std::runtime_error("model must contain exactly six scalar joints");
   for (int i = 1; i <= 6; ++i)
@@ -27,13 +70,10 @@ Model::Model(const ModelConfig &c) : impl_(new Impl) {
     throw std::runtime_error("missing TCP frame");
   p.tool = p.model.getFrameId(c.tool_frame);
   p.data.reset(new pinocchio::Data(p.model));
-  std::ifstream source(c.urdf, std::ios::binary);
-  if (!source)
-    throw std::runtime_error("cannot fingerprint model");
   std::ostringstream canonical;
   canonical.imbue(std::locale::classic());
   canonical << std::setprecision(17);
-  canonical << source.rdbuf() << '\n'
+  canonical << source << '\n'
             << c.tool_frame << '\n'
             << c.gravity.transpose() << '\n';
   auto bytes = canonical.str();

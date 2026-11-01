@@ -1,4 +1,5 @@
 #include "z1_control/controller.hpp"
+#include "z1_control/friction.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -38,7 +39,7 @@ ModelConfig defaultModelConfig(const std::string &path) {
   return c;
 }
 Controller::Controller(ModelConfig m, Config c)
-    : config_(c), model_(m), planning_model_(m), generator_(c.period),
+    : config_(c), model_has_gripper_(m.has_gripper), model_(m), planning_model_(m), generator_(c.period),
       stiffness_(c.stiffness), damping_(c.damping) {
   if (!std::isfinite(c.period) || c.period <= 0 ||
       !std::isfinite(c.feedback_timeout) || c.feedback_timeout < c.period ||
@@ -73,6 +74,9 @@ Controller::Controller(ModelConfig m, Config c)
     throw std::invalid_argument("invalid tolerances or joint velocity limits");
   state_.reason = "startup disabled";
   state_.model_revision = model_.revision();
+  validateFrictionConfig(c.friction);
+  if (c.friction.enabled && !frictionProfileMatches())
+    throw std::invalid_argument("friction profile does not match selected model; re-identify or verify profile");
   std::random_device entropy;
   state_.session = (static_cast<uint64_t>(entropy()) << 32) ^ entropy();
 }
@@ -420,6 +424,26 @@ bool Controller::gains(const Vec &k, const Vec &d) {
   config_.damping = d;
   return true;
 }
+bool Controller::frictionProfileMatches() const {
+  const auto &c = config_.friction;
+  if (c.coulomb.isZero(0) && c.viscous.isZero(0)) return true;
+  return (c.has_gripper < 0 || bool(c.has_gripper) == model_has_gripper_) &&
+         (c.model_revision.empty() || c.model_revision == state_.model_revision);
+}
+bool Controller::frictionCompensation(bool enabled) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_.mode != Mode::Disabled &&
+      !(state_.mode == Mode::Holding && state_.feedback_valid &&
+        stationary(config_.start_velocity_tolerance)))
+    return false;
+  if (enabled && !frictionProfileMatches()) return false;
+  config_.friction.enabled = enabled;
+  friction_velocity_.setZero();
+  last_friction_.setZero();
+  friction_feedback_time_ = 0;
+  ++generation_;
+  return true;
+}
 bool Controller::gripper(double q) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!state_.feedback.has_gripper || state_.mode != Mode::Holding ||
@@ -438,6 +462,9 @@ void Controller::fault(const std::string &why) {
   target_valid_ = false;
   gripper_requested_ = false;
   last_torque_.setZero();
+  friction_velocity_.setZero();
+  last_friction_.setZero();
+  friction_feedback_time_ = 0;
   ++state_.session;
   ++generation_;
 }
@@ -647,8 +674,13 @@ Output Controller::step(const Feedback &feedback, double now,
       }
       event(id, Outcome::Accepted, "control operation applied");
     }
-    if (state_.mode == Mode::Disabled || state_.mode == Mode::Fault)
+    if (state_.mode == Mode::Disabled || state_.mode == Mode::Fault) {
+      friction_velocity_.setZero();
+      last_friction_.setZero();
+      friction_feedback_time_ = 0;
+      friction_mode_ = state_.mode;
       return out;
+    }
     if (streaming(state_.mode) && now > stream_deadline_)
       beginStop("stream input timeout", now);
     if (state_.mode == Mode::Fault)
@@ -839,6 +871,31 @@ Output Controller::step(const Feedback &feedback, double now,
                         config_.kd.cwiseProduct(velocity_ - f.dq);
       torque = model_.inverseDynamics(f.q, f.dq, desired_acc);
     }
+    if (state_.mode == Mode::Impedance && friction_mode_ != Mode::Impedance) {
+      friction_velocity_.setZero();
+      last_friction_.setZero();
+      friction_feedback_time_ = 0;
+    }
+    if (new_feedback) {
+      const double sample_dt = friction_feedback_time_ == 0 ? config_.period :
+          std::max(0.0, f.received_at - friction_feedback_time_);
+      const double alpha = 1 - std::exp(-sample_dt / config_.friction.impedance_velocity_filter);
+      friction_velocity_ += alpha * (f.dq - friction_velocity_);
+      friction_feedback_time_ = f.received_at;
+    }
+    friction_mode_ = state_.mode;
+    // Position tracking anticipates intended motion. Impedance compensates
+    // filtered measured motion, including external guidance, not an IK target.
+    out.friction_compensation_enabled = config_.friction.enabled;
+    out.friction_feedforward = frictionFeedforward(config_.friction,
+        state_.mode == Mode::Impedance ? friction_velocity_ : velocity_);
+    if (state_.mode == Mode::Impedance) {
+      const Vec change = Vec::Constant(config_.friction.impedance_torque_rate * std::min(dt,config_.period));
+      out.friction_feedforward = out.friction_feedforward.cwiseMax(last_friction_-change)
+          .cwiseMin(last_friction_+change);
+    }
+    last_friction_ = out.friction_feedforward;
+    torque += out.friction_feedforward;
     if (!torque.allFinite()) {
       fault("nonfinite torque");
       return out;
@@ -882,6 +939,7 @@ Snapshot Controller::snapshot() const {
   snapshot.reference_position = reference_;
   snapshot.reference_velocity = velocity_;
   snapshot.commanded_torque = last_torque_;
+  snapshot.friction_compensation_enabled = config_.friction.enabled;
   return snapshot;
 }
 std::vector<Event> Controller::events() {

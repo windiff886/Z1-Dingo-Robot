@@ -6,11 +6,21 @@
 #include <thread>
 namespace z1 {
 double monotonicTime();
+struct RuntimeSample {
+  double sent_at{};
+  Feedback feedback;
+  Output command; // Command actually passed to exchange, not next cycle's output.
+  bool feedback_valid{};
+  Mode mode{Mode::Disabled};
+  uint64_t active_id{};
+};
 struct RuntimeOptions {
   // Both settings apply only to the control thread. Zero / -1 leave the
   // operating system's defaults unchanged.
   int realtime_priority{0};
   int cpu_affinity{-1};
+  // Called after step, only for a fresh feedback packet. Must not block or do IO.
+  std::function<void(const RuntimeSample &)> sample_callback;
 };
 struct RuntimeTiming {
   // Reset on start; cycles include controlled stopping, excluding the final

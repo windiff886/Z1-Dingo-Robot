@@ -144,6 +144,8 @@ int main() {
         for (int joints : {6, 7}) {
           Firmware server(version, joints, combined);
           McuTransport driver(cfg);
+          require(driver.hasGripper() == (joints == 7),
+                  "handshake attachment discovery unavailable before feedback");
           Output command;
           auto a = driver.exchange(command, now());
           require(a.sent && a.feedback.fresh, "fresh feedback missing");
@@ -157,6 +159,12 @@ int main() {
           }
           require(a.feedback.has_gripper == (joints == 7),
                   "gripper detection failed");
+          require(a.feedback.has_temperature == (version == 2),
+                  "temperature availability does not match protocol");
+          if (version == 2)
+            for (int motor = 0; motor < (joints == 7 ? 8 : 7); ++motor)
+              require(a.feedback.temperature[motor] == 25,
+                      "motor temperature indexing lost paired J2 or gripper");
           if (joints == 7) {
             require(std::abs(a.feedback.gripper_q - 0.185) < 1e-6 &&
                         std::abs(a.feedback.gripper_dq - 2.0) < 1e-6 &&

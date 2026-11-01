@@ -28,4 +28,7 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 Vec poseError(const Pose &actual, const Pose &desired);
+// Canonical source with the gripper subtree removed when not installed.
+// The massless tool frame and six arm joints keep their original transforms.
+std::string effectiveModelUrdf(const ModelConfig &);
 } // namespace z1

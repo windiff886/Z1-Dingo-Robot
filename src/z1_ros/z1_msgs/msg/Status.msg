@@ -43,3 +43,4 @@ int32 cpu_affinity_error
 # Executed finite trajectory duration (seconds) and uniform retiming factor.
 float64 trajectory_duration
 float64 trajectory_time_scale
+bool friction_compensation_enabled

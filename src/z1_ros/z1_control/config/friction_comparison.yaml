@@ -1,0 +1,8 @@
+# Overrides friction_identification.yaml for a position-law A/B experiment.
+# Same six-axis center/preflight/limits; no automatic move to a suggested pose.
+speeds: [0.04]
+amplitude: 0.10
+repeats: 4
+static_enabled: false
+minimum_rms_reduction: 0.10
+output_directory: ~/.ros/z1_friction_comparison

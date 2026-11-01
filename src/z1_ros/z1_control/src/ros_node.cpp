@@ -1,12 +1,17 @@
 #include "z1_control/runtime.hpp"
+#include "z1_control/sample_queue.hpp"
+#include "z1_control/friction.hpp"
+#include <algorithm>
 #include <XmlRpcValue.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <ros/callback_queue.h>
 #include <ros/ros.h>
 #include <sensor_msgs/JointState.h>
+#include <std_srvs/SetBool.h>
 #include <stdexcept>
 #include <z1_msgs/CartesianReference.h>
 #include <z1_msgs/ControlCommand.h>
+#include <z1_msgs/ControlSample.h>
 #include <z1_msgs/GripperGoal.h>
 #include <z1_msgs/ImpedanceGains.h>
 #include <z1_msgs/JointGoal.h>
@@ -76,11 +81,21 @@ class Node {
   ros::CallbackQueue planning_queue_;
   ros::NodeHandle nh_, params_{"~"}, planning_nh_;
   z1::Config config_;
+  std::unique_ptr<z1::SampleQueue<>> sample_queue_;
+  std::unique_ptr<z1::Model> telemetry_model_;
   std::unique_ptr<z1::Runtime> runtime_;
   std::string prefix_, base_frame_;
   double command_age_{0.2}, publish_rate_{100};
-  ros::Publisher joints_, commands_, tcp_, status_, results_;
+  ros::Publisher joints_, commands_, tcp_, status_, results_, samples_;
   std::vector<ros::Subscriber> subscriptions_;
+  ros::ServiceServer friction_service_;
+  bool setFriction(std_srvs::SetBool::Request &request, std_srvs::SetBool::Response &response) {
+    response.success = runtime_->controller().frictionCompensation(request.data);
+    response.message = response.success ? "friction switch applied; coefficients/gains unchanged" :
+        "requires Disabled/stationary Holding and matching friction model provenance";
+    if (response.success) params_.setParam("friction/enabled", request.data);
+    return true;
+  }
   bool header(const std_msgs::Header &h, bool stream, bool base_required) {
     if (base_required && h.frame_id != base_frame_)
       return false;
@@ -155,6 +170,22 @@ public:
     readVector(params_, "mcu_kd", config_.mcu_kd);
     readVector(params_, "stiffness", config_.stiffness);
     readVector(params_, "damping", config_.damping);
+    std::string friction_file, friction_arm;
+    if (params_.getParam("friction_file", friction_file)) {
+      if (!params_.getParam("friction_arm", friction_arm))
+        throw std::runtime_error("friction_file requires friction_arm=left or right");
+      config_.friction = z1::loadFrictionConfig(friction_file, friction_arm);
+    }
+    bool force_friction_disabled = false;
+    params_.param("friction_force_disabled", force_friction_disabled, false);
+    if (force_friction_disabled) config_.friction.enabled = false;
+    params_.setParam("friction/enabled", config_.friction.enabled);
+    params_.setParam("friction/coulomb_nm", std::vector<double>(config_.friction.coulomb.data(), config_.friction.coulomb.data()+6));
+    params_.setParam("friction/viscous_nm_s_per_rad", std::vector<double>(config_.friction.viscous.data(), config_.friction.viscous.data()+6));
+    params_.setParam("friction/velocity_scale_rad_s", config_.friction.velocity_scale);
+    params_.setParam("friction/impedance_velocity_filter_s", config_.friction.impedance_velocity_filter);
+    params_.setParam("friction/impedance_torque_rate_nm_s", config_.friction.impedance_torque_rate);
+    params_.setParam("friction/model_revision", config_.friction.model_revision);
     auto model = z1::defaultModelConfig(urdf);
     params_.param<std::string>("tool_frame", model.tool_frame, "tool");
     readVector(params_, "gravity", model.gravity);
@@ -169,10 +200,35 @@ public:
           "invalid port or receive budget leaves no control time");
     z1::McuConfig mcu{ip, static_cast<unsigned>(port), config_.period,
                       static_cast<unsigned>(budget)};
+    // Validate user configuration before opening hardware, as for native Runtime.
+    {
+      auto validation_config = config_;
+      // Attachment provenance is checked against the actual MCU-selected model
+      // by Runtime below, not against the pre-handshake gripper default.
+      validation_config.friction.has_gripper = -1;
+      validation_config.friction.model_revision.clear();
+      z1::Controller validation(model, validation_config);
+    }
+    auto transport = std::make_unique<z1::McuTransport>(mcu);
+    model.has_gripper = transport->hasGripper();
+    bool record_samples = false;
+    params_.param("record_control_samples", record_samples, false);
+    if (record_samples) {
+      sample_queue_ = std::make_unique<z1::SampleQueue<>>();
+      telemetry_model_ = std::make_unique<z1::Model>(model);
+      runtime_options.sample_callback = [this](const z1::RuntimeSample &sample) {
+        sample_queue_->push(sample);
+      };
+      samples_ = nh_.advertise<z1_msgs::ControlSample>("control_samples", 2048);
+    }
     runtime_ = std::make_unique<z1::Runtime>(
-        model, config_,
-        [mcu] { return std::make_unique<z1::McuTransport>(mcu); },
+        model, config_, std::move(transport),
         runtime_options);
+    params_.setParam("device_has_gripper", model.has_gripper);
+    params_.setParam("effective_model_xml", z1::effectiveModelUrdf(model));
+    friction_service_ = params_.advertiseService("set_friction_compensation", &Node::setFriction, this);
+    ROS_INFO_STREAM(base_frame_ << ": MCU gripper=" << model.has_gripper
+                    << ", model=" << runtime_->controller().snapshot().model_revision);
     joints_ = nh_.advertise<sensor_msgs::JointState>("joint_states", 1);
     commands_ = nh_.advertise<sensor_msgs::JointState>("commanded_joint_states", 1);
     tcp_ = nh_.advertise<geometry_msgs::PoseStamped>("tcp_pose", 1);
@@ -414,7 +470,47 @@ public:
       status.cpu_affinity_error = timing.affinity_error;
       status.trajectory_duration = s.trajectory_duration;
       status.trajectory_time_scale = s.trajectory_time_scale;
+      status.friction_compensation_enabled = s.friction_compensation_enabled;
       status_.publish(status);
+      if (sample_queue_) {
+        z1::RuntimeSample sample;
+        for (unsigned n = 0; n < 2048 && sample_queue_->pop(sample); ++n) {
+          z1_msgs::ControlSample message;
+          message.header.stamp = stamp;
+          message.header.frame_id = base_frame_;
+          message.feedback_sequence = sample.feedback.sequence;
+          message.received_at = sample.feedback.received_at;
+          message.sent_at = sample.sent_at;
+          message.feedback_valid = sample.feedback_valid;
+          message.command_enabled = sample.command.enabled;
+          message.friction_compensation_enabled = sample.command.friction_compensation_enabled;
+          message.has_gripper = sample.feedback.has_gripper;
+          message.gripper_position = sample.feedback.gripper_q;
+          message.has_temperature = sample.feedback.has_temperature;
+          std::copy(sample.feedback.temperature.begin(), sample.feedback.temperature.end(),
+                    message.temperature.begin());
+          message.mode = static_cast<uint8_t>(sample.mode);
+          message.active_command_id = sample.active_id;
+          message.dropped_samples = sample_queue_->dropped();
+          z1::Vec gravity = z1::Vec::Zero();
+          if (sample.feedback.q.allFinite())
+            gravity = telemetry_model_->inverseDynamics(
+                sample.feedback.q, z1::Vec::Zero(), z1::Vec::Zero());
+          for (int i = 0; i < 6; ++i) {
+            message.position[i] = sample.feedback.q[i];
+            message.velocity[i] = sample.feedback.dq[i];
+            message.effort[i] = sample.feedback.tau[i];
+            message.gravity[i] = gravity[i];
+            message.command_position[i] = sample.command.q[i];
+            message.command_velocity[i] = sample.command.dq[i];
+            message.command_effort[i] = sample.command.tau[i];
+            message.command_kp[i] = sample.command.kp[i];
+            message.command_kd[i] = sample.command.kd[i];
+            message.friction_feedforward[i] = sample.command.friction_feedforward[i];
+          }
+          samples_.publish(message);
+        }
+      }
       commands.header.stamp = stamp;
       commands.header.frame_id = base_frame_;
       for (int i = 0; i < 6; ++i) {

@@ -103,6 +103,7 @@ void Runtime::start() {
                  : 0);
       Exchange e;
       const auto exchange_began = Clock::now();
+      const Output sent_command = out;
       try {
         e = transport_->exchange(out, std::chrono::duration<double>(
                                           exchange_began.time_since_epoch())
@@ -123,6 +124,13 @@ void Runtime::start() {
           e.error = "MCU packet send failed";
       }
       out = controller_.step(e.feedback, monotonicTime(), e.error);
+      if (options_.sample_callback && e.feedback.fresh) {
+        const auto state = controller_.snapshot();
+        options_.sample_callback({
+            std::chrono::duration<double>(exchange_began.time_since_epoch()).count(),
+            e.feedback, sent_command, state.feedback_valid, state.mode,
+            state.active_id});
+      }
       timing_.cycles.fetch_add(1, std::memory_order_relaxed);
     };
     auto waitNext = [&] {

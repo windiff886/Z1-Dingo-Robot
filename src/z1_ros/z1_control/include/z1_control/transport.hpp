@@ -28,6 +28,7 @@ public:
   explicit McuTransport(const McuConfig &);
   ~McuTransport();
   Exchange exchange(const Output &, double now) override;
+  bool hasGripper() const;
   // Vendor-filtered six-axis velocity for maintenance stillness checks.
   // Consume only alongside a fresh, finite raw feedback sample.
   Vec filteredVelocity() const;

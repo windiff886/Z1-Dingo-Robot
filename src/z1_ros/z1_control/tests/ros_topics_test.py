@@ -14,6 +14,7 @@ import socket
 import subprocess
 import math
 import copy
+from collections import deque
 from pathlib import Path
 import yaml
 from mcu_fixture import McuFixture, unused_local_port
@@ -32,11 +33,12 @@ def main():
     import rospy
     from sensor_msgs.msg import JointState
     from geometry_msgs.msg import PoseStamped
+    from std_srvs.srv import SetBool
     from z1_msgs.msg import (ControlCommand, JointGoal, JointStream, PoseStream,
                              JointReference, CartesianReference,
                              JointTrajectory, TrajectoryPoint, JointWaypoints,
                              JointWaypoint, LinearPath,
-                             ImpedanceGains, MotionResult, Status)
+                             ImpedanceGains, MotionResult, Status, ControlSample)
     master = Master(port=port)
     master.start()
     children = []
@@ -51,6 +53,7 @@ def main():
         communication = yaml.safe_load((config_dir / 'communication.yaml').read_text())
         control = yaml.safe_load((config_dir / 'control.yaml').read_text())
         states, joints, poses, commands, results = {}, {}, {}, {}, []
+        samples = {arm: deque(maxlen=256) for arm in ('left', 'right')}
         subscribers = []
         local_ports = set()
         for index, arm in enumerate(('left', 'right'), start=1):
@@ -63,12 +66,16 @@ def main():
             for topic, cls, store in [('status', Status, states), ('joint_states', JointState, joints), ('tcp_pose', PoseStamped, poses), ('commanded_joint_states', JointState, commands)]:
                 subscribers.append(rospy.Subscriber(ns + '/' + topic, cls, lambda m, key=arm, target=store: target.__setitem__(key, m)))
             subscribers.append(rospy.Subscriber(ns + '/result', MotionResult, lambda m: results.append(m)))
+            subscribers.append(rospy.Subscriber(ns + '/control_samples', ControlSample,
+                lambda m, key=arm: samples[key].append(m), queue_size=2048))
             log = open(f'/tmp/z1-{arm}-integration.log', 'w')
             logs.append(log)
             parameters = dict(control)
             parameters.update(communication[f'{arm}_arm']['controller'])
             parameters.update(mcu_ip=address, local_port=local_port,
-                              model_file=model, joint_prefix=f'{arm}_')
+                              model_file=model, joint_prefix=f'{arm}_', record_control_samples=True,
+                              friction_file=str(config_dir.parent.parent/'z1_control/config/friction_compensation.yaml'),
+                              friction_arm=arm)
             rospy.set_param(ns + '/controller', parameters)
             children.append(subprocess.Popen(
                 [executable, f'__ns:={ns}', '__name:=controller'],
@@ -94,6 +101,26 @@ def main():
         assert all(n.startswith('left_') for n in joints['left'].name)
         assert all(n.startswith('right_') for n in joints['right'].name)
         assert states['left'].has_gripper and not states['right'].has_gripper
+        assert rospy.get_param('/left_arm/controller/device_has_gripper') is True
+        assert rospy.get_param('/right_arm/controller/device_has_gripper') is False
+        assert 'gripperStator' in rospy.get_param('/left_arm/controller/effective_model_xml')
+        assert 'gripperStator' not in rospy.get_param('/right_arm/controller/effective_model_xml')
+        assert states['left'].model_revision != states['right'].model_revision
+        for arm in ('left','right'):
+            name=f'/{arm}_arm/controller/set_friction_compensation'
+            rospy.wait_for_service(name,timeout=5)
+            switch=rospy.ServiceProxy(name,SetBool)
+            assert switch(False).success
+            wait(lambda: not states[arm].friction_compensation_enabled,'friction switch did not disable')
+            assert switch(True).success
+            wait(lambda: states[arm].friction_compensation_enabled,'friction switch did not enable')
+        wait(lambda: all(len(values) > 20 for values in samples.values()), 'no native recording samples')
+        for arm, values in samples.items():
+            recent = list(values)
+            assert all(b.feedback_sequence == a.feedback_sequence + 1 for a, b in zip(recent, recent[1:]))
+            assert all(m.received_at >= m.sent_at and m.dropped_samples == 0 for m in recent)
+            assert all(list(m.friction_feedforward)==[0.]*6 for m in recent)
+            assert all(m.has_gripper == (arm == 'left') for m in recent)
         assert joints['left'].position[6] > 0, 'raw gripper encoder allowance not exercised'
         wait(lambda: len(commands) == 2, 'missing host reference telemetry')
         assert commands['left'].name == [f'left_joint{i}' for i in range(1, 7)]

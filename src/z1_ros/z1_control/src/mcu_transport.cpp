@@ -35,6 +35,9 @@ McuTransport::McuTransport(const McuConfig &c) : impl_(new Impl) {
   p.observer.budget_us = c.receive_budget_us;
 }
 McuTransport::~McuTransport() = default;
+bool McuTransport::hasGripper() const {
+  return impl_->observer.motor_count == 8;
+}
 Vec McuTransport::filteredVelocity() const {
   return impl_->state->getDqFiltered();
 }
@@ -105,12 +108,15 @@ Exchange McuTransport::exchange(const Output &output, double) {
     f.gripper_dq = p.state->dq[6];
     f.gripper_tau = p.state->tau[6];
     // Public arrays expose device errors; V1 has no motor status information.
-    if (p.observer.protocol == 2)
+    if (p.observer.protocol == 2) {
+      f.has_temperature = true;
+      unsigned motor_index = 0;
       for (unsigned joint = 0; joint < (f.has_gripper ? 7u : 6u); ++joint) {
         for (unsigned motor = 0; motor < (joint == 1 ? 2u : 1u); ++motor) {
           auto offset = joint * 22 + 16 + motor * 3;
           const int temperature =
               static_cast<int8_t>(p.observer.state_bytes[offset]);
+          f.temperature[motor_index++] = static_cast<int8_t>(temperature);
           const unsigned error = p.observer.state_bytes[offset + 1];
           const unsigned connection = p.observer.state_bytes[offset + 2] >> 6;
           // Match this vendor version's LowLevelState::checkError() and
@@ -132,6 +138,7 @@ Exchange McuTransport::exchange(const Output &output, double) {
           }
         }
       }
+    }
   } else {
     e.error = "no valid new MCU packet";
   }
