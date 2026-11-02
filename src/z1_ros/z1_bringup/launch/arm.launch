@@ -1,4 +1,0 @@
-<launch>
-  <include file="$(find z1_bringup)/launch/controllers.launch"/>
-  <node pkg="z1_bringup" type="publish_description.py" name="arm_description" output="screen"/>
-</launch>

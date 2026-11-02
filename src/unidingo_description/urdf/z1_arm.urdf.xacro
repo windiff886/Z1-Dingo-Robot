@@ -269,7 +269,7 @@
       </inertial>
     </link>
 
-    <!-- Match z1_control.urdf: TCP is fixed, not the moving gripper finger. -->
+    <!-- Display TCP only; this does not configure the official SDK end frame. -->
     <link name="${prefix}tool"/>
     <joint name="${prefix}tool_mount" type="fixed">
       <parent link="${prefix}link06"/>

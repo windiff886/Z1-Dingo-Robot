@@ -1,0 +1,16 @@
+# mcu_local_port is the PC-side port; the official MCU destination is 8880.
+arms:
+  left:
+    mcu_ip: 192.168.123.110
+    mcu_local_port: 8881
+    controller_port: 8071
+    sdk_port: 8072
+    has_gripper: true
+    load_kg: 0.0
+  right:
+    mcu_ip: 192.168.123.111
+    mcu_local_port: 8882
+    controller_port: 8073
+    sdk_port: 8074
+    has_gripper: false
+    load_kg: 0.0

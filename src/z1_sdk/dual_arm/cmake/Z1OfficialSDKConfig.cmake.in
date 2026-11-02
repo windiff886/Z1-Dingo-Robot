@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+set(_z1_library "@PACKAGE_CMAKE_INSTALL_LIBDIR@/libZ1_SDK_@CMAKE_SYSTEM_PROCESSOR@.so")
+set(_z1_include "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+include(CMakeFindDependencyMacro)
+find_dependency(Eigen3 NO_MODULE)
+find_dependency(Threads)
+if(NOT TARGET z1_official::sdk)
+  add_library(z1_official::sdk SHARED IMPORTED)
+  set_target_properties(z1_official::sdk PROPERTIES
+    IMPORTED_LOCATION "${_z1_library}"
+    INTERFACE_INCLUDE_DIRECTORIES "${_z1_include}"
+    INTERFACE_LINK_LIBRARIES "Eigen3::Eigen;Threads::Threads")
+endif()
+unset(_z1_library)
+unset(_z1_include)

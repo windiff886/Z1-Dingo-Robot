@@ -2,7 +2,7 @@
 
 这是 Dingo 底盘、两台 Unitree Z1 机械臂、Pan-Tilt 云台和相机的描述资源包。目录名是 `unidingo_description`，ROS 包名是 `uni_dingo`。
 
-本包提供 URDF、Xacro 和网格资源。[unidingo_rviz_test](../z1_ros/unidingo_rviz_test/README.md) 使用这些资源加载整机模型、发布 TF，并提供双臂 TCP 交互测试。
+本包提供 URDF、Xacro 和网格资源。机械臂控制使用独立的[官方 Z1 SDK](../z1_sdk/README.md)；原自研 RViz TCP 控制工具已移除。
 
 ## 目录
 
@@ -57,6 +57,6 @@ rosrun xacro xacro "$(rospack find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro
 
 ## 坐标系与模型范围
 
-左右臂各有一个固定的 `tool` 坐标系，带 `left_` / `right_` 前缀，位于各自 `link06` 的 X 正方向 0.051 m 处，姿态保持不变。它和默认 `z1_control.urdf` 的 TCP 一致，夹爪的活动指与它无关。`unidingo_rviz_test/tests/test_model_contract.py` 会离线核对这部分。
+左右臂各有一个固定的显示用 `tool` 坐标系，带 `left_` / `right_` 前缀，位于各自 `link06` 的 X 正方向 0.051 m 处，姿态保持不变，夹爪的活动指与它无关。这个显示坐标系不会自动改变官方 SDK 的末端定义；对接目标位姿时需核对两者的坐标变换。
 
 安装位置、支撑结构和各组件之间的固定连接来自 CAD 和手工装配，尚未经过整机标定。整机相机外壳和光学中心只用于示意；如果需要用相机和机械臂联合定位，必须通过标定确定实际的相机外参。独立相机入口复用的 D435 描述与整机示意模型也有所不同。
