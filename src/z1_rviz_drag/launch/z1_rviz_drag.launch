@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<!--
+  整机模型 + RViz 拖动测试官方 Z1 SDK。
+  先在另一个终端启动官方控制器：z1_official.py controllers
+  本 launch 只启动 SDK 客户端（每臂一个），不会启动控制器。
+-->
+<launch>
+  <!-- 要连接的机械臂列表，例如 [left]、[right] 或 [left, right] -->
+  <arg name="arms" default="[left, right]"/>
+  <arg name="arms_config" default="$(dirname)/../../z1_sdk/dual_arm/config/arms.yaml"/>
+  <!-- 用 -DZ1_BUILD_PYTHON=ON 编译出的、带端口参数的 unitree_arm_interface 所在目录 -->
+  <arg name="sdk_python_path" default="/tmp/z1-build/dual_arm"/>
+  <arg name="send_on_release" default="true"/>
+  <arg name="movej_speed" default="0.5"/>
+  <arg name="movel_speed" default="0.1"/>
+  <arg name="UnitreeGripper" default="true"/>
+  <arg name="PanTilt" default="true"/>
+  <arg name="rvizconfig" default="$(find z1_rviz_drag)/rviz/z1_rviz_drag.rviz"/>
+
+  <param name="robot_description"
+         command="$(find xacro)/xacro $(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro
+                  UnitreeGripper:=$(arg UnitreeGripper) PanTilt:=$(arg PanTilt)"/>
+
+  <node name="z1_rviz_drag" pkg="z1_rviz_drag" type="z1_rviz_drag.py" output="screen" required="true">
+    <rosparam param="arms" subst_value="true">$(arg arms)</rosparam>
+    <param name="arms_config" value="$(arg arms_config)"/>
+    <param name="sdk_python_path" value="$(arg sdk_python_path)"/>
+    <param name="send_on_release" value="$(arg send_on_release)"/>
+    <param name="movej_speed" value="$(arg movej_speed)"/>
+    <param name="movel_speed" value="$(arg movel_speed)"/>
+  </node>
+
+  <!-- 机械臂关节来自 SDK 实测反馈；底盘轮子、云台等其余关节保持零位 -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+    <rosparam param="source_list">[/z1_rviz_drag/arm_joint_states]</rosparam>
+    <param name="rate" value="30"/>
+  </node>
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true"/>
+</launch>
