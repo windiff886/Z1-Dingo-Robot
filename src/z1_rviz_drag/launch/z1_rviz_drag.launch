@@ -37,5 +37,21 @@
   </node>
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
 
+  <!-- 目标虚影：同一个整机模型，TF 前缀 ghost，关节来自节点计算的 IK 目标 -->
+  <group ns="ghost">
+    <param name="robot_description"
+           command="$(find xacro)/xacro $(find uni_dingo)/urdf/uni_dingo_dual_arm.urdf.xacro
+                    UnitreeGripper:=$(arg UnitreeGripper) PanTilt:=$(arg PanTilt)"/>
+    <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+      <rosparam param="source_list">[/z1_rviz_drag/ghost_joint_states]</rosparam>
+      <param name="rate" value="30"/>
+    </node>
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher">
+      <param name="tf_prefix" value="ghost"/>
+    </node>
+  </group>
+  <node name="ghost_tf" pkg="tf2_ros" type="static_transform_publisher"
+        args="0 0 0 0 0 0 base_link ghost/base_link"/>
+
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true"/>
 </launch>

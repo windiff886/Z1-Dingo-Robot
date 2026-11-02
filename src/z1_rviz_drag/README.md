@@ -25,8 +25,8 @@
 
 - 拖动箭头 / 圆环编辑目标；状态文字显示 `IK ok` 或 `NO IK`（官方 IK 结果）。
 - 默认松开鼠标即以 `movej_speed`（0.5 rad/s）发送 `MoveJ`。设 `send_on_release:=false` 后，只能用右键菜单发送。
-- 右键菜单包括：Send MoveJ、Send MoveL、Reset target to measured、backToStart (home) 和 PASSIVE。
-- 每条臂基座后方有蓝色 **HOME** 按钮，点击即调用官方 `backToStart()`，让该臂回到控制器的 home 位姿。
+- 右键菜单包括：Send MoveJ、Send MoveL、Reset target to measured、Home (backToStart，让该臂回到控制器的 home 位姿) 和 PASSIVE。
+- 拖动时，实体模型留在实测位置，半透明的 **Target (ghost)** 模型显示官方 IK 解出的目标姿态；`NO IK` 或没有目标时，虚影与实体重合。
 - 没有编辑目标时，手柄跟随实测 TCP，模型关节来自 SDK 反馈；底盘轮子和云台保持零位。
 
 ## 坐标说明

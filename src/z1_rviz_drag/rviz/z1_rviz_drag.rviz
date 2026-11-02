@@ -60,6 +60,22 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
+    - Alpha: 0.35
+      Class: rviz/RobotModel
+      Collision Enabled: false
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+      Name: Target (ghost)
+      Robot Description: /ghost/robot_description
+      TF Prefix: ghost
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
     - Class: rviz/TF
       Enabled: false
       Frame Timeout: 15

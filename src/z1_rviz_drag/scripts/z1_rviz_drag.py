@@ -201,18 +201,18 @@ class DragNode:
             raise
 
         self.joint_pub = rospy.Publisher("~arm_joint_states", JointState, queue_size=1)
+        self.ghost_pub = rospy.Publisher("~ghost_joint_states", JointState, queue_size=1)
         self.status_pub = rospy.Publisher("~status", MarkerArray, queue_size=1)
         self.server = InteractiveMarkerServer("z1_rviz_drag")
         self.menu = MenuHandler()
         self.menu.insert("Send MoveJ", callback=lambda fb: self.send(fb, "MoveJ"))
         self.menu.insert("Send MoveL", callback=lambda fb: self.send(fb, "MoveL"))
         self.menu.insert("Reset target to measured", callback=self.on_reset)
-        self.menu.insert("backToStart (home)", callback=self.on_home)
+        self.menu.insert("Home (backToStart)", callback=self.on_home)
         self.menu.insert("PASSIVE", callback=self.on_passive)
         for arm in self.arms.values():
             self.server.insert(self.make_marker(arm), self.on_feedback)
             self.menu.apply(self.server, arm.name)
-            self.server.insert(self.make_home_button(arm), self.on_home_button)
         self.server.applyChanges()
         self.shown = {}
         rospy.on_shutdown(self.close)
@@ -236,38 +236,6 @@ class DragNode:
         im.controls.append(handle)
         im.controls.extend(axis_controls())
         return im
-
-    def make_home_button(self, arm):
-        # Clickable button behind the arm base, in the arm's link00 frame.
-        im = InteractiveMarker()
-        im.header.frame_id = arm.prefix + "link00"
-        im.name = arm.name + "_home"
-        im.scale = 0.1
-        im.pose.position.x, im.pose.position.z = -0.15, 0.6
-        im.pose.orientation.w = 1.0
-        box = Marker(type=Marker.CUBE)
-        box.scale.x = box.scale.y = box.scale.z = 0.06
-        box.color.r, box.color.g, box.color.b, box.color.a = 0.2, 0.5, 1.0, 0.9
-        label = Marker(type=Marker.TEXT_VIEW_FACING)
-        label.pose.position.z = 0.07
-        label.scale.z = 0.04
-        label.color.r = label.color.g = label.color.b = label.color.a = 1.0
-        label.text = f"{arm.name.upper()} HOME"
-        button = InteractiveMarkerControl()
-        button.name = "home_button"
-        button.interaction_mode = InteractiveMarkerControl.BUTTON
-        button.always_visible = True
-        button.markers.extend([box, label])
-        im.controls.append(button)
-        return im
-
-    def on_home_button(self, fb):
-        if fb.event_type != Feedback.BUTTON_CLICK:
-            return
-        arm = self.arms.get(fb.marker_name[:-len("_home")])
-        if arm is not None:
-            arm.reset_target()
-            arm.run("backToStart", arm.sdk.backToStart, True)
 
     def on_feedback(self, fb):
         arm = self.arms.get(fb.marker_name)
@@ -326,6 +294,8 @@ class DragNode:
     def tick(self, _event):
         js = JointState()
         js.header.stamp = rospy.Time.now()
+        ghost = JointState()  # target pose (IK result) while editing, else measured
+        ghost.header.stamp = js.header.stamp
         statuses = MarkerArray()
         changed = False
         for i, arm in enumerate(self.arms.values()):
@@ -338,8 +308,16 @@ class DragNode:
                     js.position.append(float(arm.sdk.lowstate.getGripperQ()))
             with arm.mutex:
                 editing = arm.dragging or arm.busy or arm.target_T is not None
-                target_ok = arm.target_q is not None
+                target_q = arm.target_q
+                target_ok = target_q is not None
                 has_target = arm.target_T is not None
+            if q is not None:
+                gq = target_q if target_ok else q
+                ghost.name += [f"{arm.prefix}joint{j}" for j in range(1, 7)]
+                ghost.position += gq.tolist()
+                if arm.has_gripper:
+                    ghost.name.append(arm.prefix + "jointGripper")
+                    ghost.position.append(float(arm.sdk.lowstate.getGripperQ()))
             if q is not None and not editing:
                 pose = homo_to_pose(arm.fk(q))
                 key = (pose.position.x, pose.position.y, pose.position.z,
@@ -356,6 +334,7 @@ class DragNode:
             self.server.applyChanges()
         if js.name:
             self.joint_pub.publish(js)
+            self.ghost_pub.publish(ghost)
         self.status_pub.publish(statuses)
 
     def status_marker(self, i, arm, has_target, target_ok):
