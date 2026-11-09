@@ -1,11 +1,29 @@
 <launch>
+  <!-- Starts the official realsense2_camera driver (src/realsense2_camera, upstream 2.3.2).
+       Topics: /d455/color/image_raw, /d455/color/camera_info,
+               /d455/aligned_depth_to_color/image_raw, /d455/aligned_depth_to_color/camera_info -->
   <arg name="camera" default="d455" />
-  <arg name="manager" default="d455_camera_manager" />
+  <arg name="width" default="640" />
+  <arg name="height" default="480" />
+  <arg name="fps" default="30" />
 
-  <group ns="$(arg camera)">
-    <node pkg="nodelet" type="nodelet" name="$(arg manager)" args="manager" output="screen" />
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="camera" value="$(arg camera)" />
+    <!-- The color optical frame becomes $(arg camera)_color_optical_frame. -->
+    <arg name="tf_prefix" value="$(arg camera)" />
+    <!-- The robot URDF (d455_visual.urdf.xacro) owns the camera frames. -->
+    <arg name="publish_tf" value="false" />
 
-    <node pkg="nodelet" type="nodelet" name="d455_camera"
-          args="load d455_camera/D455CameraNodelet $(arg manager)" output="screen" />
-  </group>
+    <arg name="enable_color" value="true" />
+    <arg name="color_width" value="$(arg width)" />
+    <arg name="color_height" value="$(arg height)" />
+    <arg name="color_fps" value="$(arg fps)" />
+
+    <arg name="enable_depth" value="true" />
+    <arg name="depth_width" value="$(arg width)" />
+    <arg name="depth_height" value="$(arg height)" />
+    <arg name="depth_fps" value="$(arg fps)" />
+
+    <arg name="align_depth" value="true" />
+  </include>
 </launch>

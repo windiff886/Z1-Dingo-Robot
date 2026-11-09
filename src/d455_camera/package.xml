@@ -1,21 +1,12 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>d455_camera</name>
-  <version>0.1.0</version>
-  <description>D455 camera nodelet and publisher for ROS 1</description>
+  <version>0.2.0</version>
+  <description>Launch configuration for the D455 camera using the official realsense2_camera driver</description>
   <maintainer email="user@example.com">user</maintainer>
   <license>BSD</license>
 
   <buildtool_depend>catkin</buildtool_depend>
 
-  <depend>image_transport</depend>
-  <depend>nodelet</depend>
-  <depend>pluginlib</depend>
-  <depend>roscpp</depend>
-  <depend>sensor_msgs</depend>
-  <depend>librealsense2</depend>
-
-  <export>
-    <nodelet plugin="${prefix}/nodelet_plugins.xml"/>
-  </export>
+  <exec_depend>realsense2_camera</exec_depend>
 </package>

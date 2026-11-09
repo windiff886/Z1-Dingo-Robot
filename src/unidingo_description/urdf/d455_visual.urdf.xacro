@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Schematic housing only. Optical extrinsics require physical calibration.
-       The color frame name matches d455_camera/src/camera_config.h. -->
+       The color frame name matches d455_camera/launch/d455_camera_nodelet.launch (camera:=d455). -->
   <xacro:macro name="d455_visual" params="parent *origin">
     <link name="d455_link">
       <visual>
